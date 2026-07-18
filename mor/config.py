@@ -84,6 +84,16 @@ def set_config(**kwargs) -> dict:
     return cfg
 
 
+def web_open() -> bool:
+    """True (the default) means the crew may fetch any public web page without the
+    operator allowing each domain. Set ``web = "gated"`` in config (or MOR_WEB) to
+    fall back to the per-domain allowlist. Either way the SSRF guard still refuses
+    the host's own loopback/LAN and cloud-metadata addresses — that never asks."""
+    cfg = load_json(config_path(), {})
+    mode = os.environ.get("MOR_WEB") or cfg.get("web") or "open"
+    return mode != "gated"
+
+
 # --------------------------------------------------------------------------
 # projects
 # --------------------------------------------------------------------------

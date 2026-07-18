@@ -171,11 +171,13 @@ observation the agent reads on its next step.
     for a build with `mor config --shell-net bridge`.
   - `host` — runs directly on the host in the workspace dir. Unsandboxed; only
     sensible when MoRE itself is already in a throwaway box/container.
-- **`web_fetch`** — the single way out, and the main safety rail:
+- **`web_fetch`** — the crew's way onto the public web:
   - only agents marked `can_egress` (the `researcher`) get it;
-  - only for a domain **you** allowed (`mor allow example.com`, or `*` for all);
-  - SSRF-guarded — public web only, never loopback/LAN/cloud-metadata, even when
-    the domain is allowed;
+  - **open by default** — it can fetch any public site with no per-domain
+    permission. (Prefer a whitelist? `mor config --web gated`, then
+    `mor allow <domain>`.)
+  - always SSRF-guarded — public web only, never the host's loopback/LAN or a
+    cloud-metadata address. This never asks you anything; it just refuses;
   - one hop — redirects are reported, not followed;
   - anything it returns is flagged **tainted**, and a round that leaned on
     outside data says so when it reports back.

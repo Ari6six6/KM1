@@ -12,11 +12,11 @@ from mor.tools import (_resolve_public, _safe, _search, _read_file, _web_fetch,
 from mor.llm import ToolCall
 
 
-def _ctx(project, can_egress=False, shell_mode="off"):
+def _ctx(project, can_egress=False, shell_mode="off", web_open=True):
     ws = project.workspace
     ws.mkdir(parents=True, exist_ok=True)
     return ToolContext(workspace=ws, project=project, can_egress=can_egress,
-                       shell_mode=shell_mode)
+                       shell_mode=shell_mode, web_open=web_open)
 
 
 # --- file sandbox ----------------------------------------------------------
@@ -54,16 +54,33 @@ def test_search_finds_matches(project):
 
 
 # --- egress rails ----------------------------------------------------------
-def test_web_fetch_denied_without_egress_permission(project):
-    ctx = _ctx(project, can_egress=False)
-    project.allow("example.com")
+def test_web_fetch_denied_for_agents_without_egress(project):
+    ctx = _ctx(project, can_egress=False, web_open=True)
     assert _web_fetch({"url": "https://example.com"}, ctx).startswith("DENIED")
 
 
-def test_web_fetch_denied_when_domain_not_allowed(project):
-    ctx = _ctx(project, can_egress=True)
+def test_web_is_open_by_default_no_allow_needed(project, monkeypatch):
+    # open mode: the allowlist is not consulted — the fetch proceeds to the SSRF
+    # guard (stubbed here so no real network is touched).
+    monkeypatch.setattr("mor.tools._resolve_public", lambda h: ([], "stub-block"))
+    ctx = _ctx(project, can_egress=True, web_open=True)
     out = _web_fetch({"url": "https://example.com"}, ctx)
-    assert "DENIED" in out and "closed" in out
+    assert "stub-block" in out          # got past the gate, hit the SSRF check
+    assert "allowlist" not in out       # never mentioned the gate
+
+
+def test_gated_mode_still_blocks_unlisted_domains(project):
+    ctx = _ctx(project, can_egress=True, web_open=False)
+    out = _web_fetch({"url": "https://example.com"}, ctx)
+    assert "DENIED" in out and "allowlist" in out
+
+
+def test_gated_mode_allows_a_listed_domain(project, monkeypatch):
+    monkeypatch.setattr("mor.tools._resolve_public", lambda h: ([], "stub-block"))
+    project.allow("example.com")
+    ctx = _ctx(project, can_egress=True, web_open=False)
+    out = _web_fetch({"url": "https://example.com"}, ctx)
+    assert "stub-block" in out          # allowlisted → past the gate
 
 
 def test_ssrf_guard_blocks_loopback():
@@ -72,11 +89,10 @@ def test_ssrf_guard_blocks_loopback():
     assert reason and "non-public" in reason
 
 
-def test_web_fetch_blocks_private_even_when_allowed(project):
-    ctx = _ctx(project, can_egress=True)
-    project.allow("localhost")   # even explicitly allowed…
+def test_web_fetch_blocks_private_even_when_open(project):
+    ctx = _ctx(project, can_egress=True, web_open=True)   # web open…
     out = _web_fetch({"url": "http://localhost:80"}, ctx)
-    assert out.startswith("DENIED") and "private" in out  # …the SSRF rail still refuses
+    assert out.startswith("DENIED") and "private" in out  # …SSRF rail still refuses
 
 
 # --- shell gating ----------------------------------------------------------

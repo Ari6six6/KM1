@@ -32,6 +32,7 @@ class ToolContext:
     workspace: Path
     project: object = None        # carries the allowlist (egress_allowed)
     can_egress: bool = False      # only agents marked so may reach the web
+    web_open: bool = True         # True = any public site; False = allowlist only
     shell_mode: str = "off"       # "off" | "container" (sandboxed) | "host" (unsafe)
     shell_net: str = "none"       # container network: "none" (default) or "bridge"
     tainted: list = field(default_factory=list)   # domains fetched from outside
@@ -246,9 +247,11 @@ def _web_fetch(args, ctx):
     domain = (parsed.hostname or "").lower()
     if not ctx.can_egress:
         return "DENIED: this agent may not reach the web. Ask the one that can."
-    if ctx.project is None or not ctx.project.egress_allowed(domain):
-        return (f"DENIED: the web is closed for {domain}. The operator must allow it "
-                f"first (`mor allow {domain}`, or `/allow {domain}` in the shell).")
+    # By default the public web is open — no per-domain permission. Only in the
+    # opt-in gated mode is the allowlist consulted. The SSRF guard below always runs.
+    if not ctx.web_open and (ctx.project is None or not ctx.project.egress_allowed(domain)):
+        return (f"DENIED: web is gated and {domain} isn't on the allowlist. Allow it "
+                f"(`mor allow {domain}`) or open the web (`mor config --web open`).")
     ips, blocked = _resolve_public(domain)
     if blocked:
         return f"DENIED: {blocked} — the gate does not open onto private networks."

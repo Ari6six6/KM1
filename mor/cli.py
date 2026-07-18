@@ -28,9 +28,9 @@ BANNER = f"""{ui.bold(ui.cyan('  MoRE'))} {ui.dim('— a small multi-agent harne
 HELP = f"""{ui.bold('Commands')}
   {ui.cyan('<text>')}            give the crew a task
   {ui.cyan('/agents')}           list the crew and who can reach the web
-  {ui.cyan('/allow')} <domain>   open web access for a domain (or {ui.cyan('*')} for all public sites)
-  {ui.cyan('/allow')}            show the current allowlist
-  {ui.cyan('/deny')} <domain>    close a domain again
+  {ui.dim('(the web is open by default — the crew can browse any public site freely)')}
+  {ui.cyan('/allow')} <domain>   (only if you ran `config --web gated`) allowlist a domain
+  {ui.cyan('/deny')} <domain>    remove a domain from the allowlist
   {ui.cyan('/note')} <text>      add a durable project note (memory across sessions)
   {ui.cyan('/notes')}            show the project notes
   {ui.cyan('/model')}            show how MoRE reaches the model
@@ -45,9 +45,17 @@ HELP = f"""{ui.bold('Commands')}
 
 
 def _cmd_allow(project, rest: str) -> None:
+    from mor.config import web_open
+    if web_open():
+        print(ui.dim("  the web is open — the crew can already fetch any public site, "
+                     "no allow needed."))
+        print(ui.dim("  (want a whitelist instead? `mor config --web gated`, then "
+                     "`mor allow <domain>`.)"))
+        if not rest:
+            return
     if not rest:
         al = project.allowlist()
-        print(ui.dim("  allowed: " + (", ".join(al) if al else "(nothing — the web is closed)")))
+        print(ui.dim("  allowed: " + (", ".join(al) if al else "(nothing yet)")))
         return
     opened = project.allow(rest.split()[0])
     if opened == "*":
@@ -84,11 +92,16 @@ def _shell_label(cfg: dict) -> str:
     return "shell: off"
 
 
+def _web_label() -> str:
+    from mor.config import web_open
+    return "web: open (any public site)" if web_open() else "web: gated (allowlist only)"
+
+
 def _cmd_model() -> None:
     cfg = endpoint()
     if cfg["base_url"]:
         print(ui.dim(f"  model: {cfg['model']} @ {cfg['base_url']}"))
-        print(ui.dim(f"  {_shell_label(cfg)}"))
+        print(ui.dim(f"  {_shell_label(cfg)} · {_web_label()}"))
     else:
         print(ui.dim("  offline stand-in — no endpoint set. Reach a model with one of:"))
         print(ui.dim("    mor gpu ssh -p <port> root@<ip> -L 8080:localhost:8080   # rent+serve"))
@@ -164,7 +177,7 @@ def _config_from_args(argv: list) -> int:
     updates, i = {}, 0
     flags = {"--base-url": "base_url", "--model": "model", "--api-key": "api_key",
              "--max-tokens": "max_tokens", "--temperature": "temperature",
-             "--shell": "shell", "--shell-net": "shell_net"}
+             "--shell": "shell", "--shell-net": "shell_net", "--web": "web"}
     while i < len(argv):
         a = argv[i]
         if a in flags and i + 1 < len(argv):
@@ -178,6 +191,9 @@ def _config_from_args(argv: list) -> int:
                 return 2
             elif a == "--shell-net" and val not in ("none", "bridge"):
                 print(ui.yellow("  --shell-net must be none or bridge"))
+                return 2
+            elif a == "--web" and val not in ("open", "gated"):
+                print(ui.yellow("  --web must be open or gated"))
                 return 2
             updates[flags[a]] = val
             i += 2
