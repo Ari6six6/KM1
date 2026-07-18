@@ -19,3 +19,7 @@ mor = "mor.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["mor*"]
+
+[tool.pytest.ini_options]
+# so `pytest` (without installing the package) finds `mor` from the repo root
+pythonpath = ["."]

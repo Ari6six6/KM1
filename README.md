@@ -27,20 +27,39 @@ lead → operator: The workspace has three modules — a CLI entry point, a stor
 
 ## Install
 
-Pick one:
+**You don't need to install anything.** Just run it from inside the folder
+(needs Python 3.10+):
 
 ```sh
-./mor-cli                       # run from the clone, no install (needs Python 3.10+)
-pip install -e .                # installs the `mor` command
-pipx install .                  # isolated global install
-docker build -t more .          # containerized (see "Deploy" below)
+cd MoRE
+./mor-cli
 ```
 
-Verify:
+Everywhere below, `mor <thing>` is shorthand for `./mor-cli <thing>` run from the
+`MoRE` folder. They are the same — use `./mor-cli` if you haven't installed.
+
+<details>
+<summary>Optional: a global <code>mor</code> command</summary>
+
+If you'd rather type `mor` from anywhere, either add an alias:
 
 ```sh
-mor version
-pytest -q                       # 36 tests, no model or network needed
+echo "alias mor=\"$HOME/MoRE/mor-cli\"" >> ~/.bashrc && source ~/.bashrc
+```
+
+…or install it (on modern Debian/Ubuntu, use a venv or pipx — a bare
+`pip install` is blocked by the OS):
+
+```sh
+python3 -m venv .venv && . .venv/bin/activate && pip install -e .   # venv
+# or:  pipx install .                                               # isolated
+```
+</details>
+
+Verify (optional):
+
+```sh
+python3 -m pytest -q            # 50 tests, no model or network needed
 ```
 
 ---
