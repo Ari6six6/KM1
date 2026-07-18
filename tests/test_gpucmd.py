@@ -38,6 +38,11 @@ def test_off_clears_the_endpoint(project):
     assert endpoint()["base_url"] == ""
 
 
+def test_reconnect_without_prior_state_is_guided_not_a_crash(project, capsys):
+    gpucmd.handle("reconnect")
+    assert "nothing to reconnect to" in capsys.readouterr().out
+
+
 def test_ssh_with_bad_forward_shows_usage(project, capsys):
     gpucmd.handle("ssh root@1.2.3.4")   # no -L forward
     assert "usage" in capsys.readouterr().out.lower()

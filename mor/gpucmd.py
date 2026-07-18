@@ -68,6 +68,9 @@ def _open_tunnel(ssh_args: list, out) -> int | None:
            "-o", "StrictHostKeyChecking=accept-new",
            "-o", "BatchMode=yes",
            "-o", "ServerAliveInterval=30",
+           # give up after ~90s of a dead link so the tunnel exits cleanly (its
+           # PID dies) instead of zombie-ing — `gpu status` then reads it as down.
+           "-o", "ServerAliveCountMax=3",
            "-o", "ExitOnForwardFailure=yes",
            "-o", "ConnectTimeout=15"] + ssh_args
     try:
@@ -177,7 +180,7 @@ def handle(rest: str, out=print) -> None:
         base_url = f"http://localhost:{local_port}/v1"
         state.update(base_url=base_url, served=True, model=spec.served_name,
                      model_id=spec.key, ssh_conn=cargs, local_port=local_port,
-                     tunnel_pid=pid)
+                     remote_port=new_rport, tunnel_pid=pid)
         _save(state)
         # point the whole harness at it
         set_config(base_url=base_url, model=spec.served_name)
@@ -208,6 +211,29 @@ def handle(rest: str, out=print) -> None:
             set_config(model=spec.served_name)
         out(ui.green(f"  model → {spec.label}"))
         out(ui.dim(f"  needs ~{spec.min_total_gb}GB VRAM · {spec.weights_note}"))
+
+    elif sub == "reconnect":
+        cargs = state.get("ssh_conn")
+        lp, rp = state.get("local_port"), state.get("remote_port")
+        if not cargs or not lp or not rp:
+            out(ui.yellow("  nothing to reconnect to — run `mor gpu ssh <ssh… -L "
+                          "port:host:port>` first."))
+            return
+        spec = get_spec(state.get("model_id"))
+        _kill_tunnel(state)
+        out(ui.dim("  reopening the tunnel…"))
+        pid = _open_tunnel(list(cargs) + ["-L", f"{lp}:localhost:{rp}"], out)
+        if pid is None:
+            return
+        ready = gpumod.wait_ready(cargs, lp, spec, out)
+        base_url = f"http://localhost:{lp}/v1"
+        state.update(tunnel_pid=pid, served=True, base_url=base_url)
+        _save(state)
+        set_config(base_url=base_url, model=spec.served_name)
+        out(ui.green(f"  ⛓  reconnected at {base_url}.") if ready else
+            ui.yellow("  tunnel reopened, but the server didn't answer yet — it may "
+                      "still be waking, or the box is gone. Try `mor ping`, or re-run "
+                      "`mor gpu ssh …`."))
 
     elif sub in ("test", "ping"):
         from mor.cli import _cmd_ping
@@ -244,7 +270,10 @@ def handle(rest: str, out=print) -> None:
 
     else:  # status
         if state.get("served"):
-            live = "tunnel live" if _alive(state.get("tunnel_pid")) else "no tunnel process"
-            out(ui.dim(f"  served: {state.get('base_url')} (model: {state.get('model')}) — {live}"))
+            if _alive(state.get("tunnel_pid")):
+                live = ui.green("tunnel live")
+            else:
+                live = ui.yellow("tunnel down — `mor gpu reconnect`")
+            out(ui.dim(f"  served: {state.get('base_url')} (model: {state.get('model')}) — ") + live)
         else:
             out(ui.dim("  no GPU attached. `mor gpu ssh <ssh… -L port:host:port>` to serve a model."))

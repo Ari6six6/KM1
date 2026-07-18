@@ -116,9 +116,11 @@ class OpenAIClient(Client):
                                   tool_calls=calls)
             except Exception as e:  # noqa: BLE001 — a flaky server must not crash a run
                 last = e
-        return ChatResult(content=f"(the model did not answer — "
-                                  f"{type(last).__name__}: {str(last)[:120]}. "
-                                  "Check `mor config`.)")
+        return ChatResult(content=f"(the model endpoint didn't respond — "
+                                  f"{type(last).__name__}: {str(last)[:120]}). "
+                                  "The server or its tunnel may be down: try `mor "
+                                  "ping`, and if it's a GPU box, `mor gpu status` "
+                                  "then `mor gpu reconnect`.")
 
 
 # --------------------------------------------------------------------------
