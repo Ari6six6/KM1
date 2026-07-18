@@ -40,6 +40,15 @@ def _colour_for(name: str):
     return _c(_PALETTE[idx])
 
 
+def bar(fraction: float, width: int = 22, label: str = "") -> str:
+    """A dependency-free progress bar: [█████·········]  45%  label."""
+    fraction = max(0.0, min(1.0, fraction))
+    filled = int(round(fraction * width))
+    body = "█" * filled + "·" * (width - filled)
+    tail = f"  {label}" if label else ""
+    return f"[{body}] {int(fraction * 100):3d}%{tail}"
+
+
 def line(speaker: str, addressee, text: str) -> str:
     paint = _colour_for(speaker)
     arrow = f" {dim('→')} {addressee}" if addressee else ""

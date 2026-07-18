@@ -45,55 +45,58 @@ pytest -q                       # 36 tests, no model or network needed
 
 ---
 
-## Deploy on a Vast.ai (or any) GPU
+## Deploy on a Vast.ai GPU — one command
 
-The pattern is: **serve a model on the GPU box, point MoRE at it.**
-
-**1. On the GPU box**, serve any model behind an OpenAI-compatible endpoint. With
-vLLM:
+Rent a box on Vast.ai (it hands you an SSH command like
+`ssh -p 24439 root@1.2.3.4`). Add a `-L` port forward to it and give the whole
+thing to MoRE:
 
 ```sh
-pip install vllm
-python -m vllm.entrypoints.openai.api_server \
-  --model your-org/your-model --port 8080 --host 0.0.0.0
+mor gpu model qwen                                         # pick a model (optional)
+mor gpu ssh -p 24439 root@1.2.3.4 -L 8080:localhost:8080   # do everything
 ```
 
-(Any OpenAI-compatible server works — vLLM, llama.cpp's `llama-server`, Ollama,
-TGI. MoRE only needs `/chat/completions`, and uses `/tools` if the model
-supports tool-calling.)
-
-**2. Reach the endpoint.** Two ways, depending on how the box is exposed:
-
-- **Direct port** — if the instance exposes the port publicly (Vast.ai
-  "Open Ports"), use the mapped address directly:
-  ```sh
-  mor config --base-url http://<instance-ip>:<mapped-port>/v1 --model your-model
-  ```
-- **SSH tunnel** — if the port isn't public, forward it (Vast.ai gives you the
-  ssh command; add `-L`):
-  ```sh
-  ssh -N -L 8080:localhost:8080 -p <ssh-port> root@<instance-ip>
-  ```
-  then in another terminal:
-  ```sh
-  mor config --base-url http://localhost:8080/v1 --model your-model
-  ```
-
-**3. Confirm it answers** before you rely on it:
+That single command reaches the box (retrying while it's still booting), detects
+the GPUs, picks a VRAM/context tier, installs vLLM (or builds llama.cpp for GGUF
+models), launches the server **with tool-calling enabled**, opens the SSH tunnel,
+and waits — with a download bar — until the model answers. Then it points the
+harness at `http://localhost:8080/v1` for you. Confirm and go:
 
 ```sh
+mor ping        # ✓ answered in 12.3s: pong
+mor             # start working
+```
+
+Manage it:
+
+```sh
+mor gpu model           # list the catalog · mor gpu model <key> to pick
+mor gpu status          # is the tunnel live? what's served?
+mor gpu off             # drop the tunnel (leaves the server running on the box)
+mor gpu down            # stop the server AND drop the tunnel
+```
+
+The model catalog lives in `mor/models.py` — edit it to add your own (repo,
+served name, VRAM floor, context tiers, vLLM vs llama.cpp). The bundled rows are a
+starting set; confirm a repo resolves before you lean on it.
+
+### Bring-your-own endpoint
+
+Already have a server running (local Ollama, a hosted API, a box you provisioned
+by hand)? Skip `gpu` entirely:
+
+```sh
+mor config --base-url http://localhost:8080/v1 --model your-model
 mor ping
-# ✓ answered in 0.4s: pong
 ```
 
-**4. Use it** (see below). If the model supports tool-calling, the crew's tools
-work end to end; if it doesn't, the agents still converse and reason, they just
-can't act.
-
-> **Running MoRE *on* the GPU box?** That's the cleanest way to let the crew use
-> the shell freely — the box is disposable, so there's nothing on your laptop to
-> protect. Use the Docker image (below) or `pip install -e .` right on the box,
-> with `--base-url http://localhost:8080/v1`.
+> If you serve a model yourself, enable tool-calling or the crew can talk but not
+> act. For vLLM: `--enable-auto-tool-choice --tool-call-parser hermes`. (`mor gpu`
+> already does this for you.)
+>
+> **Running MoRE *on* the GPU box?** Cleanest way to let the crew use the shell
+> freely — the box is disposable. `pip install -e .` on the box and
+> `mor config --base-url http://localhost:8080/v1`.
 
 ### Containerized
 
@@ -172,6 +175,8 @@ Run `mor` with no arguments for the shell; inside it:
 /allow <domain>   open web access for a domain  (/allow with no arg shows the list)
 /deny <domain>    close a domain again
 /ping             check the model endpoint answers
+/gpu ssh <ssh…>   provision + serve a model on a GPU box (see above)
+/gpu model|status|off|down   pick a model · check · drop tunnel · stop the box
 /note <text>      add a durable project note   ·  /notes  show them
 /model            show how MoRE reaches the model
 /project [name]   show, switch, or create a project

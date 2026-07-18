@@ -34,6 +34,8 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/note')} <text>      add a durable project note (memory across sessions)
   {ui.cyan('/notes')}            show the project notes
   {ui.cyan('/model')}            show how MoRE reaches the model
+  {ui.cyan('/gpu')} ssh <ssh…>   provision + serve a model on a GPU box, in one command
+  {ui.cyan('/gpu')} model/status/off/down   pick a model · check · drop tunnel · stop box
   {ui.cyan('/ping')}             check that the model endpoint actually answers
   {ui.cyan('/project')} [name]   show, switch, or create the current project
   {ui.cyan('/crew')} init        write an editable crew.json you can customize
@@ -88,7 +90,8 @@ def _cmd_model() -> None:
         print(ui.dim(f"  model: {cfg['model']} @ {cfg['base_url']}"))
         print(ui.dim(f"  {_shell_label(cfg)}"))
     else:
-        print(ui.dim("  offline stand-in — no endpoint set. Point at a model with:"))
+        print(ui.dim("  offline stand-in — no endpoint set. Reach a model with one of:"))
+        print(ui.dim("    mor gpu ssh -p <port> root@<ip> -L 8080:localhost:8080   # rent+serve"))
         print(ui.dim("    mor config --base-url http://localhost:8080/v1 --model <name>"))
         print(ui.dim("  or export MOR_BASE_URL / MOR_MODEL for one run."))
 
@@ -210,6 +213,9 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_deny(project, rest)
     elif cmd == "model":
         _cmd_model()
+    elif cmd == "gpu":
+        from mor.gpucmd import handle
+        handle(rest)
     elif cmd in ("ping", "test"):
         _cmd_ping()
     elif cmd == "notes":
@@ -283,6 +289,10 @@ def main(argv=None) -> int:
         return 0
     if argv and argv[0] == "config":
         return _config_from_args(argv[1:])
+    if argv and argv[0] == "gpu":
+        from mor.gpucmd import handle
+        handle(" ".join(argv[1:]))
+        return 0
     if argv and argv[0] in ("ping", "test"):
         return _cmd_ping()
     if argv and argv[0] == "run":

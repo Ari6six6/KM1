@@ -10,7 +10,7 @@ See the README for the design and the mapping from the earlier, more elaborate
 version this replaced.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from mor.cli import main
 
