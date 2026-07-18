@@ -401,16 +401,30 @@ def wait_ready(cargs: list, local_port: int, spec: ModelSpec, log,
 
 
 def check_connection(cargs: list):
+    """Try to reach the box. Returns (ok, reason, transient). `transient` marks a
+    failure worth *waiting on*: a freshly-rented box resets or refuses the first
+    handshakes for the first half-minute while sshd comes up, then answers — so
+    the caller retries those instead of giving up on the first reset. Auth
+    failures and a missing ssh binary are permanent — waiting never fixes them."""
     rc, out, err = run(cargs, "echo MOR_OK", timeout=30)
     if rc == 0 and "MOR_OK" in out:
-        return True, "ok"
+        return True, "ok", False
     low = ((err or "") + (out or "")).lower()
     if rc == 127:
-        return False, "ssh binary not found on this machine"
+        return False, "ssh binary not found on this machine", False
     if "permission denied" in low or "no such identity" in low:
-        return False, "auth denied — the box isn't accepting your SSH key (add it / ssh-agent)"
+        return False, ("auth denied — the box isn't accepting your SSH key "
+                       "(add it / ssh-agent)"), False
+    # The classic freshly-booted-box signature: TCP connected, but sshd reset the
+    # handshake before its banner. Almost always still coming up, or fail2ban
+    # briefly rate-limiting new connections — worth a wait, not a wrong key.
+    if ("kex_exchange_identification" in low or "reset by peer" in low
+            or "connection reset" in low):
+        return False, ("the box reset the SSH handshake — almost always still "
+                       "booting, or briefly rate-limiting new connections"), True
     if "connection refused" in low:
-        return False, "connection refused — sshd isn't up yet; the box may still be booting"
+        return False, ("connection refused — sshd isn't up yet; the box may still "
+                       "be booting"), True
     if rc == 124:
-        return False, "no answer in 30s — wrong host/port, or the box is still booting"
-    return False, f"ssh failed: {(err or out).strip()[:160] or f'exit {rc}'}"
+        return False, "no answer in 30s — wrong host/port, or the box is still booting", True
+    return False, f"ssh failed: {(err or out).strip()[:160] or f'exit {rc}'}", False

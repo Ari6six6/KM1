@@ -138,11 +138,23 @@ def _gpu(rest: str) -> None:
         cargs = gpumod.conn_args(ssh_args)
         spec = get_spec(state.get("model_id"))
 
-        # 1. reach the box
+        # 1. reach the box. A freshly-rented box resets or refuses the first
+        # handshakes while sshd comes up — so a *transient* failure is retried a
+        # few times (Ctrl-C to stop) instead of dying on the first reset.
         print(ui.dim("  reaching the box…"))
-        ok, why = gpumod.check_connection(cargs)
+        ok, why, transient = gpumod.check_connection(cargs)
+        tries = 0
+        while not ok and transient and tries < 4:
+            tries += 1
+            print(ui.dim(f"  {why} — still coming up; retry {tries}/4 in 12s (Ctrl-C to stop)"))
+            time.sleep(12)
+            ok, why, transient = gpumod.check_connection(cargs)
         if not ok:
             print(ui.red("  can't reach the box: ") + ui.dim(why))
+            if transient:
+                print(ui.dim("  a minute of resets usually means the instance isn't "
+                             "ready — check the provider console, or test by hand:"))
+                print(ui.dim(f"    ssh -v {' '.join(cargs)} echo ok"))
             return
         # 2. detect GPUs + plan the tier (fails clearly if the box is too small)
         try:
