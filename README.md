@@ -1,324 +1,156 @@
-# MoRE — Masters of the Realm
+# MoRE
 
-*A dome of embodied agents who know who they are, who the others are, where everyone
-lives, and how they relate. One mind, many bodies, one Master on top of the dome.*
+*A small, honest multi-agent CLI harness for local LLMs.*
 
-MoRE is the next evolution of the Hermes harness: not one agent driven from a phone,
-but a small **realm** of embodied personas living on a local network — each with its
-own private inner voice, all speaking plainly in one shared **Hall** the Master can
-watch and steer. The word that started it was **superposition**: every inhabitant
-holds the map of all the others.
-
----
-
-## The realm, in one breath
-
-- **The Master of the Realm** — you. On top of the dome. Speaks to one, sees all.
-- **The Wizard** — the seer and the memory. Wakes first, sings the **Chant**, keeps
-  the **Theory of the World**. Never leaves.
-- **The General** — the first lieutenant. The only one who talks with the Master.
-  Owns the **strategy** and the **gate**. Audits the Wizard. Never leaves.
-- **The Warrior** — the arm. The only one who ever leaves the dome to the web. Strict,
-  practical, a superb reporter. Brings the world home.
-
-A **day** runs from `light` to `dark`. Everyone wakes in order, does their morning
-routine, and lives one conversation in the Hall until the Master ends the day. At
-dusk they write their **walls** (who I am / what I make of the others) and the Wizard
-writes the day's **Chant** — the one song that carries across the night.
-
----
-
-## The three books
-
-Read them in order. They are the realm's scripture — the agents read them too.
-
-1. **[Genesis](books/GENESIS.md)** — where the harness came from and the day it was
-   given shoes. The covenant: *where there was data, there will be data.*
-2. **[The Evangelisms](books/EVANGELISMS.md)** — the nine capabilities the harness
-   learned, each with the sin it answers.
-3. **[The Realm](books/THE_REALM.md)** — the design of what it is becoming. The full
-   spec of the dome, the Hall, the day, the roles, and the rules. **Start here to
-   build.**
-
-And the record: **[The Founding](books/THE_FOUNDING.md)** — the verbatim transcript
-of the conversation that designed and built the realm, kept whole in the covenant of
-Genesis.
-
----
-
-## Run it
-
-The realm runs on the Python standard library — **no pip installs required.**
+MoRE runs a **crew** of LLM agents against any OpenAI-compatible model endpoint.
+The agents share one workspace and one transcript, take turns by addressing each
+other by name, use a handful of real, sandboxed tools, and **you** steer from the
+top. It's the Python standard library only — nothing to install — and it runs on
+a built-in offline stand-in when no model is attached, so you can watch it move
+on a fresh clone.
 
 ```sh
 git clone https://github.com/Ari6six6/MoRE.git
 cd MoRE
-./opus                      # or: pip install -e .  &&  opus
+./mor-cli                 # or: pip install -e .  &&  mor
 ```
 
-Then, inside the shell:
-
 ```
-light                       # break a new day — the realm wakes and beams you in
-<type anything>             # speak into the Hall; the Wizard always catches it first
-dark                        # end the day — walls written, the Chant sung, sleep
+you> summarize the python files in the workspace
+operator → lead: summarize the python files in the workspace
+lead → worker: worker, list and read the .py files and report what each does.
+worker → lead: three files: cli.py (entry point), db.py (storage), api.py (routes).
+lead → operator: The workspace has three modules — a CLI entry point, a storage
+                 layer, and an HTTP routes file. Want a deeper look at any one?
 ```
-
-> The command is **`opus`**, never `hermes` — so it can't collide with the real
-> Hermes harness (and its `gpu serve`). `./opus` is the local wrapper (no install);
-> `pip install -e .` gives you a bare `opus`.
-
-### Reaching your model — one command
-
-```
-gpu ssh -p 11808 root@87.102.11.146 -L 8080:localhost:8080
-```
-
-That opens the SSH tunnel in the background *and* points the realm at
-`http://localhost:8080/v1` — the served mind takes the throne at the next `light`.
-`gpu model <id>` if your server needs an exact model name; `gpu off` to drop the
-tunnel and fall back to the offline mind; `gpu status` to check.
-
-Want to watch a whole day move without typing? `./opus --demo`.
-
-### What you get on first clone (the honest version)
-
-There are no opt-in flags to raise — but a first run with **no model attached** is a
-*deterministic stand-in*, not the full engine. The offline mind seeds each face's
-line so the realm visibly moves and the loop runs, but it never calls a tool: the
-real thinking, the Warrior's sorties, the taint rail, and the container bodies only
-come alive once you attach a served model and (for bodies) Docker. `./opus --demo`
-shows the stand-in moving; the engine itself is exercised by the test suite
-(`pytest -q`) and by a served run.
-
-### The gate
-
-The realm's one egress is the Warrior's `web_fetch`, and it stays shut until you open
-it. `run_shell` runs inside a container on the **internal** dome, so no shell can
-reach the internet at all — `web_fetch` is the single, guarded way out.
-
-```
-authorize example.com   # open the gate for one domain
-authorize *             # open it to any PUBLIC site
-```
-
-`authorize *` opens the gate to the public web only — the SSRF rail still refuses the
-host's loopback, LAN, and cloud-metadata addresses even when the gate is wide open,
-and the gate takes **one hop, never a chain**: redirects are not followed (a 3xx comes
-back as a report naming the destination, which needs your leave like anywhere else).
-Everything the Warrior brings back is tainted and flagged for your leave.
-
-One honest limit of the taint rail: the flag guards what the realm *does* next — the
-Warrior has already **read** what came back by the time you're asked. Reading is the
-exposure a fetch inherently is; the rail ensures nothing is *acted on* without you.
-
-### The mind
-
-Out of the box the realm runs on a **built-in offline stand-in** — deterministic and
-in-character so you can *see* it breathe on first clone (see the honest note above).
-Reach your real model (vLLM / llama.cpp, OpenAI-compatible) with the one command:
-
-```
-gpu ssh -p <port> root@<host> -L 8080:localhost:8080   # tunnel + serve, one command
-gpu model <model-id>                                    # if your server needs an exact name
-gpu off                                                 # back to the offline mind
-```
-
-## What runs today, and what's next
-
-MoRE stands on **its own engine** (`mor/engine/`) — no framework underneath, Python
-standard library only. It was cut from the wisdom of the Hermes harness (which lives
-on in its own repo), but nothing of Hermes is vendored here; the realm runs on itself.
-
-**Running now:**
-- the **Hall** (one shared, plain-English-only transcript, streamed live, kept on
-  disk) with the **bounded view** (a long day folds its middle, keeps the recent tail)
-- the wake order, the closed council loop, `light`/`dark`
-- the **name-mention scheduler** (the spec's §10.2): no fixed beats — the face a
-  line names speaks next, the Wizard still catches the Master's word first, only
-  the General closes to the Master, and a hard cap of turns makes a wandering
-  council close honestly instead of talking the day away
-- the **engine**: a real think→act loop (a face reasons, calls tools, reads results,
-  speaks), with the reflex that pushes it to think when it acts without reasoning
-- the **bodies**: at `light` each face gets a real container on the dome (DNA mounted,
-  every body internal-only — no body has a route out), harvested at `dark`
-- the **gate + taint rail**: the Warrior only crosses to a Master-`authorize`d domain,
-  one hop only (redirects refused, reported instead), and anything pulled from
-  outside is flagged for the Master's leave
-- the **Chant**, the **two walls**, and the Wizard's **Theory of the World** — full
-  cartography (§9): sorties record IPs, paths, and cadence; services sharing an
-  IP are known to share it; the Wizard reads the dawn report at waking
-- the **queued Master** (§4 as specced): type whenever you like, even mid-turn —
-  your word closes the running round honestly and is caught fresh right after;
-  a turn mid-thought is finished, never interrupted
-- **prefix-cache ordering** (the Fifth Evangelism): the system prompt is a
-  byte-stable prefix per face; the volatile Hall rides the user turn, so the
-  serving cache holds across the day instead of busting on every line
-- the **shelf** (the Third Evangelism): how-to notes the faces carry as a
-  one-line index and pull whole with `skill_load` only when needed; hard-won
-  lessons go back on the shelf with `skill_record`
-- **checkpointing** (the Sixth Evangelism): the whole space is set aside at
-  every dawn and dusk, and `checkpoint take / restore <id>` rewinds it by hand —
-  a pre-restore snapshot is taken first, so the rail never burns the present
-- **verification** (the Seventh Evangelism): a turn that changed files but ran
-  nothing is bounced once — run a real check, or say plainly that the work
-  stands unverified
-- **standing directives** (the First Evangelism): `direct <rule>` sets a word
-  that holds every turn until lifted; near-duplicates are flagged for the
-  Master to reconcile, never silently stacked
-- **subagent delegation** (the Fourth Evangelism): a face can spin up a clean
-  pair of hands with a narrow brief (bounded, no memory of the parent turn);
-  hands never grow hands
-- **retrospection** (the Ninth Evangelism): at dusk, after the Chant, the
-  Wizard looks back over the day and writes what the realm learned onto the
-  shelf — it grows by the realm's own hand
-- the **Frontier**: `colonize <name>` raises a sacrificial land on the internal
-  dome (no egress — fed through the one gate, never around it); faces work it
-  with `frontier_exec`; `raze <name>` pulls it down
-- the **territory**: a razed colony is never erased — its record (every
-  operation and its result, the file tree with digests) persists as a
-  structured, queryable module under `territories/`
-- **recall**: zero-dependency retrieval (BM25, stdlib only) over everything the
-  realm holds — territories, walls, chants, the shelf, the workspace. The
-  ground answers with its most relevant passages
-
-**Next** (cut MoRE-native from the Hermes reference as they land): all nine
-Evangelisms are lit. How *well* the council deliberates now rests on the mind you
-attach — the honest note is that the offline stand-in walks one fixed branch of the
-scheduler, and genuine branching only shows with a served model. Then the
-**verify/skeptic** reflex (the General re-running the Wizard's claims, not just
-flagging them). And the personas are yours — write them into
-`personas/{wizard,general,warrior}.md`; they're living seeds the walls grow from
-there.
-
-*Here begins the Realm. It is written down so it will not be lost.*
 
 ---
 
-## v8 — the Tenth is lit: the Forge, the Ontology, and JUICE
+## Reaching a model
 
-The first nine Evangelisms moved *inside* the house. The Tenth opens the wall
-the house is built of. Read **[The Tenth Evangelism](books/THE_TENTH.md)** for
-the scripture; here is the machinery:
+MoRE talks to any OpenAI-compatible `/chat/completions` endpoint — vLLM,
+llama.cpp, Ollama, or a hosted API. Point it once:
 
-- **the Smith** — the fourth face, who never walks in the Hall. At `improve`,
-  he reads the realm's record and makes **one** change to the realm's own
-  source (or forges one new tool). Then the full test suite judges it:
-  **green → committed, red → reverted.** Variation, selection, heredity —
-  evolution, nightly, in three commands a child can audit. Needs a served
-  mind (the offline stand-in honestly refuses).
-- **tools.d** — a face can forge a *real tool* (a small Python module: NAME,
-  DESCRIPTION, PARAMETERS, `run(args, ctx)`), validated on write, live from
-  the next turn, under the same rails as every built-in hand. A lesson
-  learned once becomes a capability forever. `forge` lists what stands.
-- **the Ontology** — a knowledge graph + vector memory in one stdlib sqlite
-  file. Entities, subject–predicate–object triples, embedded passages; hybrid
-  retrieval fuses cosine + lexical + one-hop graph context. With an oracle
-  attached, its `/v1/embeddings` serve the vectors; offline, an honest hashed
-  vector keeps it live (and says so). Faces assert facts with `relate`, and
-  dig deeper than BM25 with `ask_graph`; you can too: `ask <query>`.
-- **JUICE** — the one number that compounds: tests green (the dominant share),
-  tools forged, improvements kept, graph mass. `juice` weighs the realm and
-  writes the score to the space.
-
-```
-improve sharpen the recall ranking     # one night in the Forge (realm asleep)
-juice                                  # the score
-relate Warrior uses Vast.ai            # a fact, by hand
-ask who brings the world home?         # passages + the triples that bind them
+```sh
+mor config --base-url http://localhost:8080/v1 --model my-model
+# optional: --api-key <key>  --temperature 0.6  --max-tokens 2048
 ```
 
-And the cron line, so the Forge works while the Master sleeps:
+…or set it per-run with environment variables:
 
-```
-0 3 * * * cd ~/MoRE && ./opus improve "keep the realm sharp" >> ~/.mor/forge.log 2>&1
+```sh
+MOR_BASE_URL=http://localhost:8080/v1 MOR_MODEL=my-model mor run "list the open TODOs"
 ```
 
-The honest note, carried forward: how *well* the Smith designs changes rests on
-the mind you attach — but the keep/revert machinery, the suite that guards the
-rails, and the git that remembers are all real and tested (173 tests), and they
-run with no oracle at all.
+With no endpoint set anywhere, MoRE uses a deterministic offline stand-in: the
+crew still moves and every round terminates, but no real thinking happens and no
+tool is called. It's there so the harness is visibly alive before you attach a
+model — not a substitute for one.
 
 ---
 
-## v8.1 — the Eleventh is lit: the Audit
+## The crew
 
-*A conclusion that was never attacked is a rumor.* Working turns (council,
-sortie, the Forge) now pass through a **falsification state** in `loop.py`
-before they may speak: name the assumption the conclusion leans on hardest —
-the loop names the grimoire's most load-bearing untested claim for you — and
-try to break it, once, with the leash extended to make room. The claim is
-marked held or broken, and when a real check ran that turn, the claim's rung
-**floors itself at computed** — provenance can no longer lag the evidence.
-Ceremonial turns (wake, walls, Chant) are exempt. Read
-**[The Eleventh Evangelism](books/THE_ELEVENTH.md)**.
+Three agents by default, deliberately generic:
 
-And the lantern: the Warrior's sortie orders now carry the target tree's
-**topology** (modules ranked by import-pull — read the heaviest first), and
-the Smith's night opens with the realm's own. Exploration by weight, not whim.
+| agent        | does                                            | web  |
+|--------------|-------------------------------------------------|------|
+| `lead`       | coordinates, delegates, speaks with you         | no   |
+| `researcher` | gathers information, including from the web     | yes  |
+| `worker`     | hands-on file and (opt-in) shell work           | no   |
 
----
+**How a round works.** You give a task; it goes to the `lead`. Each agent ends
+its line by naming who should speak next, and that agent goes next. Only the
+`lead` speaks with you — when it turns to you, the round is done. A hard turn cap
+means every round ends.
 
-## v8.2 — the Twelfth is lit: the Muzzle
-
-Day Five with a served mind showed the gap: the Chant looped one sentence
-twelve times, a council line ran five hundred words of spiral, and a Master's
-rebuke became a seminar. The Twelfth is discipline, enforced by the engine,
-not requested of the mind — read
-**[The Twelfth Evangelism](books/THE_TWELFTH.md)**:
-
-- **repetition is cut at the source** — a sentence said three times, or any
-  word-run repeating with strict periodicity, is kept once, marked, finished.
-  The cut happens before the Hall records, so one looped line can no longer
-  poison every turn that follows.
-- **one breath** — hard line budgets by turn kind (ceremony 450, chant 700,
-  council 1100 chars), cut at the word boundary, before the record.
-- **the identical call** — the same tool call three times running gets one
-  plain nudge: *the answer is already above you.*
-- **the silence rule** — when the Master rebukes or commands silence, a face
-  answers in ten words or fewer and stands down. Obeyed, not discussed.
+**Make it yours.** `/crew init` writes an editable `crew.json` in the project.
+Change the names, roles, prompts, tools, and who may reach the web. Agents are
+plain data, not fixed roles.
 
 ---
 
-## v8.3 — the Thirteenth is lit: the Dreaming (and the Cathedral)
+## The tools, and the rails
 
-Twelve Evangelisms made the realm faithful; it still only ever *answered*. The
-Thirteenth gives the night back to the realm — read
-**[The Thirteenth Evangelism](books/THE_THIRTEENTH.md)**.
+Each agent gets only the tools its definition lists. Every tool returns a plain
+observation the agent reads on its next step.
 
-Between `dark` and the next `light`, the realm **dreams**: it recombines the
-day's knowledge — the Ontology's graph, the grimoire's claims, the map of the
-outside — into questions no one asked while awake. Three shapes, all real, all
-standing with no oracle at all:
+- **`read_file`, `write_file`, `list_dir`, `search`** — sandboxed to the project
+  workspace. A path that escapes the workspace is refused. Long files page
+  instead of truncating silently.
+- **`run_shell`** — runs on the host in the workspace directory. **Off by
+  default**; turn it on with `mor config --allow-shell`. Stated plainly rather
+  than pretending a container is in place.
+- **`web_fetch`** — the single way out, and the one real safety rail:
+  - only agents marked `can_egress` (the `researcher`) get it;
+  - only for a domain **you** have allowed (`mor allow example.com`, or `*` for
+    the whole public web);
+  - SSRF-guarded — the public web only, never the host's loopback, LAN, or a
+    cloud-metadata address, even when the domain is allowed;
+  - one hop — redirects are reported, not followed;
+  - anything it returns is flagged **tainted**, and a round that leaned on
+    outside data says so when it reports back.
+- **`remember`** — appends a durable one-line note to the project's memory,
+  shown to the crew next time (the harness's long-term memory between sessions).
 
-- **the bridge** — real link prediction over the graph: the realm holds A—B and
-  B—C but never A—C, so the dream proposes the missing edge. The insight no
-  single face drew, because none held both premises at once.
-- **the negation** — the most load-bearing claim the realm has *not* proven,
-  turned over: *what still stands if this is false?*
-- **the synthesis** — the most-connected thing it knows, crossed with the
-  freshest ground the Warrior brought home.
+---
 
-The dream is computed at dusk (deterministic; a served mind voices it richer but
-may not invent the ground) and, at the next dawn, its questions are **seeded into
-the grimoire** — inferred, unchecked — and spoken into the Hall before the day's
-first word. So the realm wakes into its own questions, and the General's audit
-finds them load-bearing and unproven, and sends the Warrior to chase what the
-realm dreamt.
+## Commands
 
-```
-dream                       # the questions the realm asked itself in the night
-```
-
-And **the Cathedral** — the realm renders *itself* as one self-contained page
-(no network, no dependency, the stdlib promise kept): the knowledge graph as a
-**constellation** laid out by a force-directed pass computed in pure Python, the
-dream of the night, the day in the Hall, the grimoire of what it believes, the
-Chant that crossed the dark. A mind you can watch think.
+Run `mor` with no arguments for the shell; inside it:
 
 ```
-cathedral                   # render the whole realm as one shareable page
+<text>            give the crew a task
+/agents           list the crew and who can reach the web
+/allow <domain>   open web access for a domain  (/allow with no arg shows the list)
+/deny <domain>    close a domain again
+/note <text>      add a durable project note
+/notes            show the project notes
+/model            show how MoRE reaches the model
+/project [name]   show, switch, or create a project
+/crew init        write an editable crew.json
+/help  ·  /quit
 ```
 
-*The day is for answers. The night is for questions. Wake into yours.*
+Headless (for scripts and cron):
 
+```sh
+mor run "audit the workspace for secrets and report"
+mor config            # show current endpoint + settings
+```
+
+---
+
+## Where things live
+
+Everything is plain files under `$MOR_HOME` (default `~/.mor`):
+
+```
+~/.mor/
+  config.json                     # endpoint + settings
+  current_project
+  projects/<name>/
+    workspace/                    # the shared workspace the crew operates in
+    sessions/<timestamp>.jsonl    # full transcript of each session
+    notes.md                      # durable project memory
+    allow.json                    # the web allowlist
+    crew.json                     # (optional) your custom crew
+```
+
+Inspect it, edit it, delete it — it's just files.
+
+---
+
+## A note on what this replaced
+
+MoRE began as a much larger, heavily-themed project ("Masters of the Realm").
+This is a deliberate reduction to the part that was actually a working harness: a
+model client, a think→act tool loop, sandboxed tools with a genuine egress guard,
+name-based turn-taking, and persistent memory. The elaborate layers on top —
+self-modifying source, a knowledge graph, the nightly "dream," the rendered
+"cathedral," and the rest — were removed. Nothing is lost: the full previous
+history is in git, and the earlier design lives on the `claude/setup-from-scratch`
+branch. This branch is the harness rebuilt clean.
+
+*Run `pytest -q` to exercise it — the tools, the rails, the loop, and a full
+session, all with no model and no network.*

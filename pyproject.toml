@@ -4,20 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mor"
-version = "0.8.3"
-description = "Masters of the Realm — a dome of embodied agents, standing on its own engine."
+version = "1.0.0"
+description = "MoRE — a small multi-agent CLI harness for local LLMs, standard library only."
 readme = "README.md"
 requires-python = ">=3.10"
-# MoR runs on the Python standard library. Nothing to install.
+# MoRE runs on the Python standard library. Nothing to install.
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
-# The command is `opus` — a *work*, and a wink to whose it is. Never `hermes`, so it
-# can't collide with the old harness.
 [project.scripts]
-opus = "mor.cli:main"
+mor = "mor.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["mor*"]

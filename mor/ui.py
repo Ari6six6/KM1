@@ -1,4 +1,4 @@
-"""Tiny terminal helpers — colour, and the Hall's voices rendered on screen.
+"""Tiny terminal helpers — colour, and a transcript line rendered on screen.
 
 No dependencies; ANSI only, and silently disabled when stdout isn't a tty or
 NO_COLOR is set.
@@ -11,12 +11,12 @@ import sys
 
 _ENABLED = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 
+_PALETTE = ("36", "33", "32", "35", "34", "91", "95")  # for speakers, cycled
+
 
 def _c(code: str):
     def paint(text: str) -> str:
-        if not _ENABLED:
-            return text
-        return f"\033[{code}m{text}\033[0m"
+        return f"\033[{code}m{text}\033[0m" if _ENABLED else text
     return paint
 
 
@@ -29,41 +29,18 @@ blue = _c("34")
 magenta = _c("35")
 cyan = _c("36")
 grey = _c("90")
-violet = _c("95")
-
-# The Hall's voices — each speaker a colour so the eye can follow a conversation.
-VOICE = {
-    "master": magenta,
-    "wizard": cyan,
-    "general": yellow,
-    "warrior": red,
-    "chant": green,
-    "dream": violet,
-    "system": grey,
-}
-
-GLYPH = {
-    "master": "♔ Master",
-    "wizard": "✷ Wizard",
-    "general": "✦ General",
-    "warrior": "⚔ Warrior",
-    "chant": "♪ Chant",
-    "dream": "✵ Dream",
-    "system": "·",
-}
 
 
-def bar(fraction: float, width: int = 22, label: str = "") -> str:
-    """A dependency-free progress bar: [█████·········]  45%  label."""
-    fraction = max(0.0, min(1.0, fraction))
-    filled = int(round(fraction * width))
-    body = "█" * filled + "·" * (width - filled)
-    tail = f"  {label}" if label else ""
-    return f"[{body}] {int(fraction * 100):3d}%{tail}"
+def _colour_for(name: str):
+    if name == "operator":
+        return magenta
+    if name in ("system", None):
+        return grey
+    idx = sum(ord(ch) for ch in name) % len(_PALETTE)
+    return _c(_PALETTE[idx])
 
 
-def hall_line(speaker: str, addressee: str | None, text: str) -> str:
-    paint = VOICE.get(speaker, grey)
-    who = GLYPH.get(speaker, speaker)
-    arrow = f" {dim('→')} {GLYPH.get(addressee, addressee)}" if addressee else ""
-    return f"{paint(who)}{arrow}{dim(':')} {text}"
+def line(speaker: str, addressee, text: str) -> str:
+    paint = _colour_for(speaker)
+    arrow = f" {dim('→')} {addressee}" if addressee else ""
+    return f"{paint(speaker)}{arrow}{dim(':')} {text}"

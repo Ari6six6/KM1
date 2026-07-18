@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# mor — run the harness with no install:  ./mor-cli
+# (or install it and get a bare `mor`:  pip install -e .)
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec env PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" python3 -m mor "$@"

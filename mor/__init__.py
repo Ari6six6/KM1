@@ -1,12 +1,17 @@
-"""MoRE — Masters of the Realm.
+"""MoRE — a small, honest multi-agent CLI harness for local LLMs.
 
-A dome of embodied agents (Wizard, General, Warrior) living a day from `light`
-to `dark`, speaking plain English in one shared Hall the Master watches and
-steers. One mind wears all three faces; each keeps its own private voice.
+A crew of agents shares one workspace and one transcript, takes turns by
+addressing each other by name, uses real sandboxed tools (files, an opt-in host
+shell, and a single gated web egress), and you steer from the top. It runs on the
+Python standard library — nothing to install — against any OpenAI-compatible
+model endpoint, and on a built-in offline stand-in when none is attached.
 
-The realm mechanics here are real and run on first clone. The *mind* is
-pluggable: a built-in offline stand-in by default, your served model once you
-`gpu serve`. See books/THE_REALM.md for the full design.
+See the README for the design and the mapping from the earlier, more elaborate
+version this replaced.
 """
 
-__version__ = "0.8.3"
+__version__ = "1.0.0"
+
+from mor.cli import main
+
+__all__ = ["main"]

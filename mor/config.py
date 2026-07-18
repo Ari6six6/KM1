@@ -1,8 +1,9 @@
-"""Paths, the project `space`, day counter, gate allowlist, and GPU state.
+"""Paths, project state, the model endpoint, and the web allowlist.
 
-MoR keeps its home under $MOR_HOME (default ~/.mor). A *space* is one realm's
-world on disk — its days, chants, walls, world-map, personas, and gate. The
-`space` convention survives from Hermes: `space use <name>` / `space new <name>`.
+MoRE keeps its home under ``$MOR_HOME`` (default ``~/.mor``). A *project* is one
+working world on disk: its shared workspace, saved transcripts, persistent notes,
+and its own web allowlist. Everything here is plain files and JSON — nothing to
+install, easy to inspect, easy to delete.
 """
 
 from __future__ import annotations
@@ -18,32 +19,17 @@ def mor_home() -> Path:
     return Path(os.environ.get("MOR_HOME", str(Path.home() / ".mor")))
 
 
-def gpu_state_path() -> Path:
-    return mor_home() / "gpu.json"
+def config_path() -> Path:
+    return mor_home() / "config.json"
 
 
-def current_space_file() -> Path:
-    return mor_home() / "current_space"
+def projects_root() -> Path:
+    return mor_home() / "projects"
 
 
-def spaces_root() -> Path:
-    return mor_home() / "spaces"
-
-
-def current_space_name() -> str:
-    f = current_space_file()
-    if f.exists():
-        name = f.read_text().strip()
-        if name:
-            return name
-    return "realm"
-
-
-def use_space(name: str) -> None:
-    mor_home().mkdir(parents=True, exist_ok=True)
-    current_space_file().write_text(name.strip() + "\n")
-
-
+# --------------------------------------------------------------------------
+# small JSON helpers (atomic write, so a crash never leaves a torn file)
+# --------------------------------------------------------------------------
 def load_json(path: Path, default):
     if not path.exists():
         return default
@@ -54,111 +40,125 @@ def load_json(path: Path, default):
 
 
 def save_json(path: Path, data) -> None:
-    """Write JSON atomically — a crash mid-write must never leave a torn
-    gate/grimoire/world file behind (a half-written file would silently read
-    back as the default, wiping the realm's memory)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n")
     os.replace(tmp, path)
 
 
-# A space name becomes directory names and container names — keep it plain and
-# keep it inside MOR_HOME (no separators, no dots-led tricks like `..`).
-_SPACE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+# --------------------------------------------------------------------------
+# the model endpoint
+# --------------------------------------------------------------------------
+def endpoint() -> dict:
+    """How to reach the model. Env wins over the config file, so you can point at
+    a different server for one run without editing anything:
+
+        MOR_BASE_URL   e.g. http://localhost:8080/v1  (vLLM, llama.cpp, Ollama, …)
+        MOR_MODEL      the model name the server expects
+        MOR_API_KEY    if the server wants one (default "-")
+
+    With no base URL set anywhere, MoRE runs on the built-in offline stand-in so
+    the crew still moves on a fresh clone.
+    """
+    cfg = load_json(config_path(), {})
+    base = os.environ.get("MOR_BASE_URL") or cfg.get("base_url") or ""
+    return {
+        "base_url": base.rstrip("/"),
+        "model": os.environ.get("MOR_MODEL") or cfg.get("model") or "local",
+        "api_key": os.environ.get("MOR_API_KEY") or cfg.get("api_key") or "-",
+        "temperature": float(cfg.get("temperature", 0.6)),
+        "max_tokens": int(cfg.get("max_tokens", 2048)),
+        "timeout": float(cfg.get("timeout", 300)),
+        "allow_shell": bool(cfg.get("allow_shell", False)),
+    }
 
 
-def valid_space_name(name: str) -> bool:
-    return bool(_SPACE_NAME.match(name or ""))
+def set_config(**kwargs) -> dict:
+    cfg = load_json(config_path(), {})
+    cfg.update({k: v for k, v in kwargs.items() if v is not None})
+    save_json(config_path(), cfg)
+    return cfg
 
 
-class Space:
-    """One realm's world on disk."""
+# --------------------------------------------------------------------------
+# projects
+# --------------------------------------------------------------------------
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def valid_project_name(name: str) -> bool:
+    return bool(_NAME.match(name or ""))
+
+
+def current_project_file() -> Path:
+    return mor_home() / "current_project"
+
+
+def current_project_name() -> str:
+    f = current_project_file()
+    if f.exists():
+        name = f.read_text().strip()
+        if name:
+            return name
+    return "default"
+
+
+def use_project(name: str) -> None:
+    mor_home().mkdir(parents=True, exist_ok=True)
+    current_project_file().write_text(name.strip() + "\n")
+
+
+class Project:
+    """One working world on disk."""
 
     def __init__(self, name: str):
         self.name = name
-        self.root = spaces_root() / name
+        self.root = projects_root() / name
 
-    # --- lifecycle -------------------------------------------------------
-    def ensure(self) -> "Space":
-        for sub in ("personas", "population", "chants", "days", "dreams"):
+    def ensure(self) -> "Project":
+        for sub in ("workspace", "sessions"):
             (self.root / sub).mkdir(parents=True, exist_ok=True)
         return self
 
     @property
-    def state_path(self) -> Path:
-        return self.root / "state.json"
+    def workspace(self) -> Path:
+        return self.root / "workspace"
 
-    def state(self) -> dict:
-        return load_json(self.state_path, {"last_day": 0})
+    @property
+    def notes_path(self) -> Path:
+        # A plain markdown file the crew can append to and read back — the
+        # project's long-term memory between sessions.
+        return self.root / "notes.md"
 
-    def save_state(self, state: dict) -> None:
-        save_json(self.state_path, state)
+    def notes(self) -> str:
+        p = self.notes_path
+        return p.read_text().strip() if p.exists() else ""
 
-    def next_day_number(self) -> int:
-        st = self.state()
-        return int(st.get("last_day", 0)) + 1
+    def session_path(self, stamp: str) -> Path:
+        return self.root / "sessions" / f"{stamp}.jsonl"
 
-    def commit_day(self, n: int) -> None:
-        st = self.state()
-        st["last_day"] = int(n)
-        self.save_state(st)
+    # --- web allowlist ---------------------------------------------------
+    # The one egress rail: a tool may fetch a URL only for a domain the operator
+    # has allowed. ``*`` opens the whole public web at once.
+    @property
+    def allow_path(self) -> Path:
+        return self.root / "allow.json"
 
-    # --- artifacts -------------------------------------------------------
-    def hall_path(self, day: int) -> Path:
-        return self.root / "days" / f"day-{day:04d}" / "hall.jsonl"
-
-    def chant_path(self, day: int) -> Path:
-        return self.root / "chants" / f"day-{day:04d}.md"
-
-    def dream_path(self, day: int) -> Path:
-        # The Thirteenth: what the realm dreamed the night day N ended — the
-        # structured record, seeded into the next dawn's grimoire and read into
-        # the Cathedral. Keyed by the day that ended, posted at the day that opens.
-        return self.root / "dreams" / f"day-{day:04d}.json"
-
-    def persona_path(self, role: str) -> Path:
-        return self.root / "personas" / f"{role}.md"
-
-    def inside_wall_path(self, role: str) -> Path:
-        return self.root / "population" / role / "inside_wall.md"
-
-    def outside_wall_path(self, role: str) -> Path:
-        return self.root / "population" / role / "outside_wall.md"
-
-    def world_path(self) -> Path:
-        return self.root / "world.json"
-
-    def grimoire_path(self) -> Path:
-        return self.root / "grimoire.json"
-
-    def gate_path(self) -> Path:
-        return self.root / "gate.json"
-
-    # --- gate (egress allowlist) ----------------------------------------
-    # The gate is the always-lit safety rail (the Eighth Evangelism, the taint
-    # boundary): the Warrior crosses only to a domain the Master has authorized.
-    # `authorize *` opens it wide in one word — full power, zero friction — for a
-    # Master who wants nothing between him and the world.
     def allowlist(self) -> list:
-        return load_json(self.gate_path(), {"domains": []}).get("domains", [])
+        return load_json(self.allow_path, {"domains": []}).get("domains", [])
 
     def egress_allowed(self, domain: str) -> bool:
         al = self.allowlist()
         return "*" in al or domain in al
 
-    # A plausible public hostname: dot-separated labels of letters, digits, and
-    # hyphens (no label starting or ending with one). Anything else is not a
-    # place the gate can open.
     _HOSTNAME = re.compile(
         r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
     @classmethod
     def normalize_domain(cls, domain: str) -> str:
-        """The gate matches on URL hostnames, so what the Master types must be
-        stored as one: lowercase, no scheme, no path, no port. `authorize
-        https://Example.com/a` opens `example.com` — stored raw it would open
-        nothing, silently. Returns '' for input that names no host."""
+        """Store what the operator types as a bare hostname the fetcher can match:
+        lowercase, no scheme, no path, no port. Returns '' for input that names no
+        host (so the allowlist never silently fills with junk)."""
         d = (domain or "").strip().lower()
         if not d or d == "*":
             return d
@@ -167,19 +167,27 @@ class Space:
         host = (urlparse(d).hostname or "").rstrip(".")
         return host if cls._HOSTNAME.match(host) else ""
 
-    def authorize(self, domain: str) -> str:
-        """Open the gate for a domain. Returns the normalized domain actually
-        stored ('' if the input named no host — the gate stays shut)."""
+    def allow(self, domain: str) -> str:
         domain = self.normalize_domain(domain)
         if not domain:
             return ""
-        data = load_json(self.gate_path(), {"domains": []})
+        data = load_json(self.allow_path, {"domains": []})
         domains = data.setdefault("domains", [])
         if domain not in domains:
             domains.append(domain)
-        save_json(self.gate_path(), data)
+        save_json(self.allow_path, data)
         return domain
 
+    def disallow(self, domain: str) -> bool:
+        domain = self.normalize_domain(domain)
+        data = load_json(self.allow_path, {"domains": []})
+        domains = data.get("domains", [])
+        if domain in domains:
+            domains.remove(domain)
+            save_json(self.allow_path, data)
+            return True
+        return False
 
-def load_space() -> Space:
-    return Space(current_space_name()).ensure()
+
+def load_project() -> Project:
+    return Project(current_project_name()).ensure()

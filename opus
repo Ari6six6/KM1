@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# opus — the door into the realm, no install needed:  ./opus
-# (or install it and get a bare `opus`:  pip install -e .  — it installs as
-#  `opus`, never `hermes`, so it can't touch your Hermes harness.)
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec env PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" python3 -m mor "$@"
