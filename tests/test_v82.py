@@ -73,6 +73,13 @@ class TestOneBreath:
         out = agents._budget_line("wake", "word " * 400)
         assert len(out) <= 500 and "kept brief" in out
 
+    def test_wall_budget_is_ceremony(self):
+        # THE_TWELFTH: walls are ceremony ("wake, greetings, walls") — one breath,
+        # the same 450 as a wake, not the 1100 of a working council line.
+        for kind in ("inside_wall", "outside_wall"):
+            out = agents._budget_line(kind, "word " * 400)
+            assert len(out) <= 500 and "kept brief" in out
+
     def test_council_line_under_budget_untouched(self):
         text = "Short report. " * 20
         assert agents._budget_line("council_from_general", text) == text

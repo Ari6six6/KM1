@@ -290,7 +290,8 @@ def line(backend, space, role: str, kind: str, heard: str = "", hall_tail: str =
 # The Twelfth: a line is one breath. Ceremony is short by nature; a working
 # report may breathe deeper — and no further. The cut happens BEFORE the Hall
 # records, so no turn that follows ever reads the bloat.
-_LINE_BUDGET = {"wake": 450, "greet_master": 450, "walls": 450,
+_LINE_BUDGET = {"wake": 450, "greet_master": 450,
+                "inside_wall": 450, "outside_wall": 450,
                 "chant": 700, "retrospect": 700}
 _COUNCIL_BUDGET = 1100
 
