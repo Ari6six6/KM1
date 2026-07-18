@@ -102,10 +102,22 @@ class Session:
         user = self._task(name, heard_from, heard, opening=opening, close=close)
         seed = self._seed(name, opening=opening, close=close)
         steps = 12 if (agent.can_egress or "run_shell" in agent.tools) else 8
-        spoken, _ = think_and_act(
-            self.client, system=system, user=user, tools=tools, ctx=ctx,
-            seed=seed, log=lambda m: print(ui.dim(m)) if self.transcript.echo else None,
-            max_steps=steps)
+
+        # A live ticker so a slow turn never looks frozen. On a TTY it shows
+        # "⠋ {name} is thinking… 8.4s" and updates to the tool currently running;
+        # off a TTY (headless/piped) it's inert and the tool logs print plainly.
+        sp = ui.Spinner(f"{name} is thinking")
+
+        def _log(m):
+            if sp.active:
+                sp.set(f"{name} · " + (m or "").strip().lstrip("·").strip()[:50])
+            elif self.transcript.echo:
+                print(ui.dim(m))
+
+        with sp:
+            spoken, _ = think_and_act(
+                self.client, system=system, user=user, tools=tools, ctx=ctx,
+                seed=seed, log=_log, max_steps=steps)
         return spoken
 
     def _task(self, name: str, heard_from: str, heard: str, *,
