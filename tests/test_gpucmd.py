@@ -43,6 +43,18 @@ def test_ssh_with_bad_forward_shows_usage(project, capsys):
     assert "usage" in capsys.readouterr().out.lower()
 
 
+def test_ssh_forgives_a_pasted_leading_ssh_word(project, monkeypatch, capsys):
+    # `gpu ssh ssh -p … host -L …` (the whole ssh line pasted) must not treat
+    # the literal "ssh" as the hostname.
+    seen = {}
+    from mor import gpu
+    monkeypatch.setattr(gpu, "run", lambda cargs, *a, **k: seen.setdefault("cargs", cargs)
+                        or (255, "", "Permission denied (publickey)."))
+    gpucmd.handle("ssh ssh -p 11849 root@87.116.91.146 -L 8080:localhost:8080")
+    assert "ssh" not in seen["cargs"]          # the redundant word was dropped
+    assert "root@87.116.91.146" in seen["cargs"]
+
+
 def test_ssh_degrades_when_the_box_is_unreachable(project, monkeypatch, capsys):
     # force the connection probe to report a permanent failure
     from mor import gpu

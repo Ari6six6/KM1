@@ -117,6 +117,11 @@ def handle(rest: str, out=print) -> None:
 
     if sub == "ssh":
         ssh_args = parts[1:]
+        # forgive a pasted full ssh line: `gpu ssh ssh -p … host -L …` — the
+        # leading `ssh` is redundant (gpu ssh already means "over ssh") and would
+        # otherwise be read as the hostname. Drop it.
+        while ssh_args and ssh_args[0] == "ssh":
+            ssh_args = ssh_args[1:]
         fwd = gpumod.parse_forward(ssh_args)
         if not fwd:
             out(ui.yellow("usage: mor gpu ssh <ssh args including -L localport:host:remoteport>"))
