@@ -2,19 +2,18 @@
 
 *A small, honest multi-agent CLI harness for local LLMs.*
 
-MoRE runs a **crew** of LLM agents against any OpenAI-compatible model endpoint.
-The agents share one workspace and one transcript, take turns by addressing each
-other by name, use a handful of real, sandboxed tools, and **you** steer from the
-top. It's the Python standard library only — nothing to install — and it runs on
-a built-in offline stand-in when no model is attached, so you can watch it move
-on a fresh clone.
+MoRE runs a **crew** of LLM agents against any OpenAI-compatible model endpoint —
+your own GPU box, a local server, or a hosted API. The agents share one workspace
+and one transcript, take turns by addressing each other by name, use a handful of
+real, sandboxed tools, and **you** steer from the top. It's the Python standard
+library only — nothing to install to run it — and it ships with an offline
+stand-in so you can watch it move on a fresh clone.
 
 ```sh
 git clone https://github.com/Ari6six6/MoRE.git
 cd MoRE
-./mor-cli                 # or: pip install -e .  &&  mor
+./mor-cli                 # run in place, no install
 ```
-
 ```
 you> summarize the python files in the workspace
 operator → lead: summarize the python files in the workspace
@@ -26,26 +25,90 @@ lead → operator: The workspace has three modules — a CLI entry point, a stor
 
 ---
 
-## Reaching a model
+## Install
 
-MoRE talks to any OpenAI-compatible `/chat/completions` endpoint — vLLM,
-llama.cpp, Ollama, or a hosted API. Point it once:
-
-```sh
-mor config --base-url http://localhost:8080/v1 --model my-model
-# optional: --api-key <key>  --temperature 0.6  --max-tokens 2048
-```
-
-…or set it per-run with environment variables:
+Pick one:
 
 ```sh
-MOR_BASE_URL=http://localhost:8080/v1 MOR_MODEL=my-model mor run "list the open TODOs"
+./mor-cli                       # run from the clone, no install (needs Python 3.10+)
+pip install -e .                # installs the `mor` command
+pipx install .                  # isolated global install
+docker build -t more .          # containerized (see "Deploy" below)
 ```
 
-With no endpoint set anywhere, MoRE uses a deterministic offline stand-in: the
-crew still moves and every round terminates, but no real thinking happens and no
-tool is called. It's there so the harness is visibly alive before you attach a
-model — not a substitute for one.
+Verify:
+
+```sh
+mor version
+pytest -q                       # 36 tests, no model or network needed
+```
+
+---
+
+## Deploy on a Vast.ai (or any) GPU
+
+The pattern is: **serve a model on the GPU box, point MoRE at it.**
+
+**1. On the GPU box**, serve any model behind an OpenAI-compatible endpoint. With
+vLLM:
+
+```sh
+pip install vllm
+python -m vllm.entrypoints.openai.api_server \
+  --model your-org/your-model --port 8080 --host 0.0.0.0
+```
+
+(Any OpenAI-compatible server works — vLLM, llama.cpp's `llama-server`, Ollama,
+TGI. MoRE only needs `/chat/completions`, and uses `/tools` if the model
+supports tool-calling.)
+
+**2. Reach the endpoint.** Two ways, depending on how the box is exposed:
+
+- **Direct port** — if the instance exposes the port publicly (Vast.ai
+  "Open Ports"), use the mapped address directly:
+  ```sh
+  mor config --base-url http://<instance-ip>:<mapped-port>/v1 --model your-model
+  ```
+- **SSH tunnel** — if the port isn't public, forward it (Vast.ai gives you the
+  ssh command; add `-L`):
+  ```sh
+  ssh -N -L 8080:localhost:8080 -p <ssh-port> root@<instance-ip>
+  ```
+  then in another terminal:
+  ```sh
+  mor config --base-url http://localhost:8080/v1 --model your-model
+  ```
+
+**3. Confirm it answers** before you rely on it:
+
+```sh
+mor ping
+# ✓ answered in 0.4s: pong
+```
+
+**4. Use it** (see below). If the model supports tool-calling, the crew's tools
+work end to end; if it doesn't, the agents still converse and reason, they just
+can't act.
+
+> **Running MoRE *on* the GPU box?** That's the cleanest way to let the crew use
+> the shell freely — the box is disposable, so there's nothing on your laptop to
+> protect. Use the Docker image (below) or `pip install -e .` right on the box,
+> with `--base-url http://localhost:8080/v1`.
+
+### Containerized
+
+Run the whole harness in a container so the shell is isolated by construction:
+
+```sh
+docker build -t more .
+docker run --rm -it \
+  -e MOR_BASE_URL=http://your-gpu-box:8080/v1 \
+  -e MOR_MODEL=your-model \
+  -e MOR_SHELL=host \
+  -v "$PWD":/work -e MOR_WORKSPACE=/work \
+  -v more-state:/root/.mor \
+  more
+```
 
 ---
 
@@ -75,23 +138,27 @@ plain data, not fixed roles.
 Each agent gets only the tools its definition lists. Every tool returns a plain
 observation the agent reads on its next step.
 
-- **`read_file`, `write_file`, `list_dir`, `search`** — sandboxed to the project
-  workspace. A path that escapes the workspace is refused. Long files page
-  instead of truncating silently.
-- **`run_shell`** — runs on the host in the workspace directory. **Off by
-  default**; turn it on with `mor config --allow-shell`. Stated plainly rather
-  than pretending a container is in place.
-- **`web_fetch`** — the single way out, and the one real safety rail:
+- **`read_file`, `write_file`, `list_dir`, `search`** — sandboxed to the
+  workspace. A path that escapes it is refused; long files page instead of
+  truncating silently.
+- **`run_shell`** — off by default. Three modes (`mor config --shell …`):
+  - `off` — refused.
+  - `container` *(recommended)* — runs in a disposable Docker/Podman container
+    with only the workspace mounted and **no network**. If no runtime is
+    running, it refuses rather than silently touching the host. Allow network
+    for a build with `mor config --shell-net bridge`.
+  - `host` — runs directly on the host in the workspace dir. Unsandboxed; only
+    sensible when MoRE itself is already in a throwaway box/container.
+- **`web_fetch`** — the single way out, and the main safety rail:
   - only agents marked `can_egress` (the `researcher`) get it;
-  - only for a domain **you** have allowed (`mor allow example.com`, or `*` for
-    the whole public web);
-  - SSRF-guarded — the public web only, never the host's loopback, LAN, or a
-    cloud-metadata address, even when the domain is allowed;
+  - only for a domain **you** allowed (`mor allow example.com`, or `*` for all);
+  - SSRF-guarded — public web only, never loopback/LAN/cloud-metadata, even when
+    the domain is allowed;
   - one hop — redirects are reported, not followed;
   - anything it returns is flagged **tainted**, and a round that leaned on
     outside data says so when it reports back.
-- **`remember`** — appends a durable one-line note to the project's memory,
-  shown to the crew next time (the harness's long-term memory between sessions).
+- **`remember`** — appends a durable note to the project's memory, shown to the
+  crew next session.
 
 ---
 
@@ -104,20 +171,26 @@ Run `mor` with no arguments for the shell; inside it:
 /agents           list the crew and who can reach the web
 /allow <domain>   open web access for a domain  (/allow with no arg shows the list)
 /deny <domain>    close a domain again
-/note <text>      add a durable project note
-/notes            show the project notes
+/ping             check the model endpoint answers
+/note <text>      add a durable project note   ·  /notes  show them
 /model            show how MoRE reaches the model
 /project [name]   show, switch, or create a project
 /crew init        write an editable crew.json
 /help  ·  /quit
 ```
 
-Headless (for scripts and cron):
+From the shell (scriptable):
 
 ```sh
-mor run "audit the workspace for secrets and report"
-mor config            # show current endpoint + settings
+mor run "audit the workspace for secrets and report"   # one task, then exit
+mor -C ~/code/my-repo run "find the failing test"      # work on a real directory
+mor config --base-url URL --model M --shell container   # configure
+mor ping                                                # test the endpoint
+mor allow docs.python.org                               # open one domain
 ```
+
+Environment overrides (handy for one-off runs and containers): `MOR_BASE_URL`,
+`MOR_MODEL`, `MOR_API_KEY`, `MOR_SHELL`, `MOR_WORKSPACE`, `MOR_HOME`.
 
 ---
 
@@ -130,7 +203,7 @@ Everything is plain files under `$MOR_HOME` (default `~/.mor`):
   config.json                     # endpoint + settings
   current_project
   projects/<name>/
-    workspace/                    # the shared workspace the crew operates in
+    workspace/                    # the shared workspace (unless -C / MOR_WORKSPACE)
     sessions/<timestamp>.jsonl    # full transcript of each session
     notes.md                      # durable project memory
     allow.json                    # the web allowlist
@@ -145,12 +218,9 @@ Inspect it, edit it, delete it — it's just files.
 
 MoRE began as a much larger, heavily-themed project ("Masters of the Realm").
 This is a deliberate reduction to the part that was actually a working harness: a
-model client, a think→act tool loop, sandboxed tools with a genuine egress guard,
+model client, a think→act tool loop, sandboxed tools with a real egress guard,
 name-based turn-taking, and persistent memory. The elaborate layers on top —
 self-modifying source, a knowledge graph, the nightly "dream," the rendered
-"cathedral," and the rest — were removed. Nothing is lost: the full previous
-history is in git, and the earlier design lives on the `claude/setup-from-scratch`
-branch. This branch is the harness rebuilt clean.
-
-*Run `pytest -q` to exercise it — the tools, the rails, the loop, and a full
-session, all with no model and no network.*
+"cathedral," and the rest — were removed. Nothing is lost: the full history is in
+git, and the earlier design lives on the `claude/setup-from-scratch` branch. This
+is the harness, rebuilt clean.

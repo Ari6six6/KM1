@@ -12,11 +12,11 @@ from mor.tools import (_resolve_public, _safe, _search, _read_file, _web_fetch,
 from mor.llm import ToolCall
 
 
-def _ctx(project, can_egress=False, allow_shell=False):
+def _ctx(project, can_egress=False, shell_mode="off"):
     ws = project.workspace
     ws.mkdir(parents=True, exist_ok=True)
     return ToolContext(workspace=ws, project=project, can_egress=can_egress,
-                       allow_shell=allow_shell)
+                       shell_mode=shell_mode)
 
 
 # --- file sandbox ----------------------------------------------------------
@@ -81,17 +81,45 @@ def test_web_fetch_blocks_private_even_when_allowed(project):
 
 # --- shell gating ----------------------------------------------------------
 def test_shell_off_by_default(project):
-    ctx = _ctx(project, allow_shell=False)
+    ctx = _ctx(project, shell_mode="off")
     tools = build_tools(["run_shell"], ctx)
     out = execute(tools, ToolCall("c", "run_shell", '{"command": "echo hi"}'), ctx)
     assert out.startswith("DENIED")
 
 
-def test_shell_runs_when_enabled(project):
-    ctx = _ctx(project, allow_shell=True)
+def test_host_shell_runs_when_explicitly_enabled(project):
+    ctx = _ctx(project, shell_mode="host")
     tools = build_tools(["run_shell"], ctx)
     out = execute(tools, ToolCall("c", "run_shell", '{"command": "echo hello"}'), ctx)
     assert "hello" in out and "exit 0" in out
+
+
+def test_container_shell_degrades_cleanly_without_runtime(project, monkeypatch):
+    # with no usable container runtime, the sandboxed shell refuses rather than
+    # silently falling back to the host.
+    monkeypatch.setattr("mor.sandbox.probe_runtime", lambda: "")
+    ctx = _ctx(project, shell_mode="container")
+    tools = build_tools(["run_shell"], ctx)
+    out = execute(tools, ToolCall("c", "run_shell", '{"command": "echo hi"}'), ctx)
+    assert out.startswith("DENIED") and "runtime" in out
+
+
+def test_container_shell_uses_the_runtime_when_present(project, monkeypatch):
+    calls = {}
+
+    def fake_run(workspace, command, *, runtime, network, timeout=120):
+        calls.update(workspace=workspace, command=command, runtime=runtime,
+                     network=network)
+        return 0, "sandboxed-hello\n", ""
+
+    monkeypatch.setattr("mor.sandbox.probe_runtime", lambda: "docker")
+    monkeypatch.setattr("mor.sandbox.run_in_container", fake_run)
+    ctx = _ctx(project, shell_mode="container")
+    ctx.shell_net = "none"
+    tools = build_tools(["run_shell"], ctx)
+    out = execute(tools, ToolCall("c", "run_shell", '{"command": "echo hi"}'), ctx)
+    assert "sandboxed-hello" in out and calls["runtime"] == "docker"
+    assert calls["network"] == "none"
 
 
 # --- build_tools filtering -------------------------------------------------

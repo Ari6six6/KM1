@@ -32,7 +32,8 @@ class ToolContext:
     workspace: Path
     project: object = None        # carries the allowlist (egress_allowed)
     can_egress: bool = False      # only agents marked so may reach the web
-    allow_shell: bool = False     # host shell, off unless the operator enables it
+    shell_mode: str = "off"       # "off" | "container" (sandboxed) | "host" (unsafe)
+    shell_net: str = "none"       # container network: "none" (default) or "bridge"
     tainted: list = field(default_factory=list)   # domains fetched from outside
     changed: list = field(default_factory=list)   # files written this run
 
@@ -155,17 +156,32 @@ def _search(args, ctx):
 # shell (host, workspace cwd, opt-in)
 # --------------------------------------------------------------------------
 def _run_shell(args, ctx):
-    if not ctx.allow_shell:
-        return ("DENIED: shell is off. The operator can enable it with "
-                "`mor config --allow-shell` (it runs on the host in the workspace).")
+    if ctx.shell_mode == "off":
+        return ("DENIED: shell is off. The operator can enable a sandboxed shell "
+                "with `mor config --shell container` (needs Docker or Podman).")
     cmd = (args.get("command") or "").strip()
     if not cmd:
         return "ERROR: no command"
     ctx.workspace.mkdir(parents=True, exist_ok=True)
+    timeout = int(args.get("timeout", 120))
+
+    if ctx.shell_mode == "container":
+        from mor.sandbox import probe_runtime, run_in_container
+        rt = probe_runtime()
+        if not rt:
+            return ("DENIED: sandboxed shell needs a container runtime, but none is "
+                    "running. Start Docker/Podman, or (unsafe) allow a host shell "
+                    "with `mor config --shell host`.")
+        rc, out, err = run_in_container(ctx.workspace, cmd, runtime=rt,
+                                        network=ctx.shell_net, timeout=timeout)
+        tail = (out or "") + (("\n" + err) if err and err.strip() else "")
+        return f"[exit {rc}]\n{tail[:4000]}" if tail.strip() else f"[exit {rc}] (no output)"
+
+    # host mode — explicit, unsandboxed opt-in
     try:
         p = subprocess.run(cmd, shell=True, cwd=str(ctx.workspace),
                            capture_output=True, text=True, errors="replace",
-                           timeout=int(args.get("timeout", 120)))
+                           timeout=timeout)
     except subprocess.TimeoutExpired:
         return "[timed out]"
     tail = (p.stdout or "") + (("\n" + p.stderr) if p.stderr.strip() else "")
@@ -305,8 +321,9 @@ _FILE_TOOLS = {
                                           "path": {"type": "string"}},
          "required": ["pattern"]}, _search),
     "run_shell": Tool(
-        "run_shell", "Run a shell command in the workspace directory (on the host). "
-        "Off unless the operator enabled it.",
+        "run_shell", "Run a shell command against the workspace. Off unless the "
+        "operator enabled it; when on, it runs in an isolated container (no host "
+        "access, no network by default).",
         {"type": "object", "properties": {"command": {"type": "string"},
                                           "timeout": {"type": "integer"}},
          "required": ["command"]}, _run_shell),

@@ -61,7 +61,9 @@ class Session:
         else:
             self.client, self.mode = make_client()
         from mor.config import endpoint
-        self.allow_shell = endpoint().get("allow_shell", False)
+        cfg = endpoint()
+        self.shell_mode = cfg.get("shell", "off")
+        self.shell_net = cfg.get("shell_net", "none")
         stamp = time.strftime("%Y%m%d-%H%M%S")
         self.transcript = Transcript(self.project.session_path(stamp), echo=echo)
         self.tainted: list = []
@@ -92,8 +94,8 @@ class Session:
         agent = self.by_name[name]
         system = build_system(agent, self.crew, self.lead, self.project.notes())
         ctx = ToolContext(workspace=self.project.workspace, project=self.project,
-                          can_egress=agent.can_egress, allow_shell=self.allow_shell,
-                          tainted=self.tainted)
+                          can_egress=agent.can_egress, shell_mode=self.shell_mode,
+                          shell_net=self.shell_net, tainted=self.tainted)
         tools = build_tools(agent.tools, ctx)
         user = self._task(name, heard_from, heard, opening=opening, close=close)
         seed = self._seed(name, opening=opening, close=close)

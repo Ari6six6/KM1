@@ -13,6 +13,7 @@ Configure the model endpoint once (or via MOR_BASE_URL / MOR_MODEL env vars):
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from mor import ui
 from mor.agent import load_crew, write_default_crew
@@ -33,6 +34,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/note')} <text>      add a durable project note (memory across sessions)
   {ui.cyan('/notes')}            show the project notes
   {ui.cyan('/model')}            show how MoRE reaches the model
+  {ui.cyan('/ping')}             check that the model endpoint actually answers
   {ui.cyan('/project')} [name]   show, switch, or create the current project
   {ui.cyan('/crew')} init        write an editable crew.json you can customize
   {ui.cyan('/help')}             this
@@ -71,15 +73,47 @@ def _cmd_agents(project) -> None:
         print(ui.dim(f"      tools: {', '.join(a.tools)}"))
 
 
+def _shell_label(cfg: dict) -> str:
+    mode = cfg.get("shell", "off")
+    if mode == "container":
+        return f"shell: sandboxed (net {cfg.get('shell_net', 'none')})"
+    if mode == "host":
+        return "shell: HOST (unsandboxed)"
+    return "shell: off"
+
+
 def _cmd_model() -> None:
     cfg = endpoint()
     if cfg["base_url"]:
-        print(ui.dim(f"  model: {cfg['model']} @ {cfg['base_url']}  "
-                     f"(shell {'on' if cfg['allow_shell'] else 'off'})"))
+        print(ui.dim(f"  model: {cfg['model']} @ {cfg['base_url']}"))
+        print(ui.dim(f"  {_shell_label(cfg)}"))
     else:
         print(ui.dim("  offline stand-in — no endpoint set. Point at a model with:"))
         print(ui.dim("    mor config --base-url http://localhost:8080/v1 --model <name>"))
         print(ui.dim("  or export MOR_BASE_URL / MOR_MODEL for one run."))
+
+
+def _cmd_ping() -> int:
+    """Verify the model endpoint actually answers — the first thing to run after
+    pointing MoRE at a remote GPU box."""
+    cfg = endpoint()
+    if not cfg["base_url"]:
+        print(ui.yellow("  no endpoint set — nothing to ping. `mor config --base-url …` first."))
+        return 1
+    import time
+    from mor.llm import OpenAIClient
+    print(ui.dim(f"  pinging {cfg['model']} @ {cfg['base_url']} …"))
+    t0 = time.time()
+    res = OpenAIClient(cfg).chat(
+        [{"role": "system", "content": "Reply with exactly one word: pong."},
+         {"role": "user", "content": "ping"}])
+    dt = time.time() - t0
+    reply = (res.content or "").strip()
+    if reply.startswith("(the model did not answer"):
+        print(ui.red("  ✗ no answer.  ") + ui.dim(reply))
+        return 1
+    print(ui.green(f"  ✓ answered in {dt:.1f}s: ") + reply[:200])
+    return 0
 
 
 def _cmd_project(rest: str):
@@ -126,7 +160,8 @@ def _config_from_args(argv: list) -> int:
         return 0
     updates, i = {}, 0
     flags = {"--base-url": "base_url", "--model": "model", "--api-key": "api_key",
-             "--max-tokens": "max_tokens", "--temperature": "temperature"}
+             "--max-tokens": "max_tokens", "--temperature": "temperature",
+             "--shell": "shell", "--shell-net": "shell_net"}
     while i < len(argv):
         a = argv[i]
         if a in flags and i + 1 < len(argv):
@@ -135,18 +170,21 @@ def _config_from_args(argv: list) -> int:
                 val = int(val)
             elif a == "--temperature":
                 val = float(val)
+            elif a == "--shell" and val not in ("off", "container", "host"):
+                print(ui.yellow("  --shell must be off, container, or host"))
+                return 2
+            elif a == "--shell-net" and val not in ("none", "bridge"):
+                print(ui.yellow("  --shell-net must be none or bridge"))
+                return 2
             updates[flags[a]] = val
             i += 2
-        elif a == "--allow-shell":
-            updates["allow_shell"] = True
-            i += 1
-        elif a == "--no-shell":
-            updates["allow_shell"] = False
-            i += 1
         else:
             print(ui.yellow(f"  unknown option: {a}"))
             return 2
     set_config(**updates)
+    if updates.get("shell") == "host":
+        print(ui.yellow("  ⚠ host shell runs the model's commands directly on this "
+                        "machine, unsandboxed. Prefer `--shell container`."))
     _cmd_model()
     return 0
 
@@ -172,6 +210,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_deny(project, rest)
     elif cmd == "model":
         _cmd_model()
+    elif cmd in ("ping", "test"):
+        _cmd_ping()
     elif cmd == "notes":
         _cmd_notes(project)
     elif cmd == "note":
@@ -217,13 +257,34 @@ def repl() -> None:
     print(ui.dim("  — bye —"))
 
 
+def _pop_workspace(argv: list) -> list:
+    """Pull a leading ``-C DIR`` / ``--workspace DIR`` off the args and apply it
+    as the workspace override for this process."""
+    import os
+    out, i = [], 0
+    while i < len(argv):
+        if argv[i] in ("-C", "--workspace") and i + 1 < len(argv):
+            os.environ["MOR_WORKSPACE"] = str(Path(argv[i + 1]).expanduser().resolve())
+            i += 2
+        else:
+            out.append(argv[i])
+            i += 1
+    return out
+
+
 def main(argv=None) -> int:
-    argv = list(sys.argv[1:] if argv is None else argv)
+    from mor import __version__
+    argv = _pop_workspace(list(sys.argv[1:] if argv is None else argv))
     if argv and argv[0] in ("-h", "--help"):
         print(BANNER + "\n" + HELP)
         return 0
+    if argv and argv[0] in ("-V", "--version", "version"):
+        print(f"mor {__version__}")
+        return 0
     if argv and argv[0] == "config":
         return _config_from_args(argv[1:])
+    if argv and argv[0] in ("ping", "test"):
+        return _cmd_ping()
     if argv and argv[0] == "run":
         task = " ".join(argv[1:]).strip()
         if not task:

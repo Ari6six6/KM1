@@ -62,6 +62,9 @@ def endpoint() -> dict:
     """
     cfg = load_json(config_path(), {})
     base = os.environ.get("MOR_BASE_URL") or cfg.get("base_url") or ""
+    shell = os.environ.get("MOR_SHELL") or cfg.get("shell") or "off"
+    if shell not in ("off", "container", "host"):
+        shell = "off"
     return {
         "base_url": base.rstrip("/"),
         "model": os.environ.get("MOR_MODEL") or cfg.get("model") or "local",
@@ -69,7 +72,8 @@ def endpoint() -> dict:
         "temperature": float(cfg.get("temperature", 0.6)),
         "max_tokens": int(cfg.get("max_tokens", 2048)),
         "timeout": float(cfg.get("timeout", 300)),
-        "allow_shell": bool(cfg.get("allow_shell", False)),
+        "shell": shell,
+        "shell_net": cfg.get("shell_net", "none"),
     }
 
 
@@ -122,6 +126,12 @@ class Project:
 
     @property
     def workspace(self) -> Path:
+        # ``MOR_WORKSPACE`` (or ``mor -C DIR``) points the crew at a real project
+        # directory instead of the managed one under ~/.mor. Metadata (sessions,
+        # notes, allowlist) still lives under the project root either way.
+        override = os.environ.get("MOR_WORKSPACE")
+        if override:
+            return Path(override).expanduser().resolve()
         return self.root / "workspace"
 
     @property
