@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mor"
-version = "0.8.2"
+version = "0.8.3"
 description = "Masters of the Realm — a dome of embodied agents, standing on its own engine."
 readme = "README.md"
 requires-python = ">=3.10"

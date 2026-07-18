@@ -29,6 +29,7 @@ blue = _c("34")
 magenta = _c("35")
 cyan = _c("36")
 grey = _c("90")
+violet = _c("95")
 
 # The Hall's voices — each speaker a colour so the eye can follow a conversation.
 VOICE = {
@@ -37,6 +38,7 @@ VOICE = {
     "general": yellow,
     "warrior": red,
     "chant": green,
+    "dream": violet,
     "system": grey,
 }
 
@@ -46,6 +48,7 @@ GLYPH = {
     "general": "✦ General",
     "warrior": "⚔ Warrior",
     "chant": "♪ Chant",
+    "dream": "✵ Dream",
     "system": "·",
 }
 

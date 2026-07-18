@@ -46,6 +46,8 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('improve')} [brief] one night in the Forge — the Smith mutates, the suite judges (asleep only)
   {ui.cyan('forge')}           list the tools the realm has forged for itself
   {ui.cyan('juice')}           the score: tests green · tools forged · improvements kept · graph mass
+  {ui.cyan('dream')}           the realm's last dream — the questions it asked itself at night
+  {ui.cyan('cathedral')}       render the whole realm as one self-contained page you can share
   {ui.cyan('help')} / {ui.cyan('?')}       this
   {ui.cyan('quit')} / {ui.cyan('q')}       leave (ends the day first if one is lit)
 """
@@ -560,6 +562,34 @@ def _juice(realm, rest: str) -> None:
           f"{g['passages']} passages")
 
 
+def _dream(realm, rest: str) -> None:
+    """Read the realm's last dream — the questions it asked itself in the night
+    (the Thirteenth). Structural by default; a served mind voices it richer."""
+    from mor import dream
+    rec = dream.latest(realm.space)
+    if not rec or not rec.get("visions"):
+        print(ui.dim("  the realm has not dreamed yet — seal a day (`dark`), and "
+                     "when it has knowledge to recombine, it will."))
+        return
+    how = "voiced by the oracle" if rec.get("how") == "mind" else "spun from the graph"
+    print(ui.bold(ui.violet(f"  ✵ the dream of day {rec.get('day', '?')}  ")) + ui.dim(f"({how})"))
+    print("  " + ui.dim(rec.get("woven", "")))
+    for v in rec["visions"]:
+        print(f"    {ui.violet('✵')} {ui.dim('[' + v.get('kind', '') + ']')} {v.get('text', '')}")
+        print(ui.dim(f"        {v.get('why', '')}"))
+
+
+def _cathedral(realm, rest: str) -> None:
+    """Render the whole realm as one self-contained page — the Cathedral: the
+    knowledge graph as a constellation, the dream, the Hall, the grimoire, the
+    Chant. No network, no dependency; it stands alone in any browser."""
+    from mor import vision
+    print(ui.dim("  the realm renders itself…"))
+    p = vision.write(realm.space, rest.strip() or None)
+    print(ui.green(f"  ⛪  the Cathedral stands → {p}"))
+    print(ui.dim("  open it in a browser — self-contained, offline, the realm's own hand."))
+
+
 def _dispatch(realm, raw: str) -> bool:
     """One line from the Master. Returns False only when the shell should exit."""
     cmd = raw.split()[0].lower()
@@ -601,6 +631,10 @@ def _dispatch(realm, raw: str) -> bool:
         _forge(realm, rest)
     elif cmd == "juice":
         _juice(realm, rest)
+    elif cmd == "dream":
+        _dream(realm, rest)
+    elif cmd in ("cathedral", "vision"):
+        _cathedral(realm, rest)
     elif realm.awake:
         realm.master_says(raw)
     else:
@@ -682,10 +716,11 @@ def main(argv=None) -> int:
     #   opus improve "sharpen the recall tool"   (one night, then exits)
     #   opus juice                               (the score, then exits)
     #   opus ask "what does the realm know of vast.ai?"
-    if argv and argv[0] in ("improve", "juice", "ask"):
+    if argv and argv[0] in ("improve", "juice", "ask", "dream", "cathedral", "vision"):
         realm = Realm(load_space())
         rest = " ".join(argv[1:])
-        {"improve": _improve, "juice": _juice, "ask": _ask}[argv[0]](realm, rest)
+        {"improve": _improve, "juice": _juice, "ask": _ask, "dream": _dream,
+         "cathedral": _cathedral, "vision": _cathedral}[argv[0]](realm, rest)
         return 0
     repl()
     return 0

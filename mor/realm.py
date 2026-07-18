@@ -71,6 +71,20 @@ class Realm:
         if prev.exists():
             self.hall.post("chant", None, prev.read_text().strip())
 
+        # The Thirteenth: the dream of the night just past. Its questions are
+        # seeded into the dawn's grimoire (so the General's audit finds the
+        # realm's own hypotheses load-bearing and unproven, and sends the Warrior
+        # to chase them) and spoken into the Hall before the day's first word —
+        # the realm wakes into its own questions.
+        try:
+            from mor import dream as _dream
+            drec = _dream.seed_into_dawn(self.space, self.day - 1)
+            dline = _dream.render_line(drec)
+            if dline:
+                self.hall.post("dream", None, dline)
+        except Exception:  # noqa: BLE001 — a dream never blocks a dawn
+            pass
+
         # Wake in order — Wizard, General, Warrior — each queues at the one mind.
         # The day's sinks ride every turn (wake included): a face that pulls from
         # outside at dawn is tainted exactly as one that does it mid-council.
@@ -227,6 +241,21 @@ class Realm:
                      taint_sink=self._tainted,
                      grimoire_sink=self._grimoire_touched)
         h.post("wizard", None, retro)
+
+        # The Thirteenth: before sleep, the realm dreams. The day's whole
+        # knowledge — the graph of what-is, the book of claims, the map of the
+        # outside — is recombined into questions no one asked while awake.
+        # Structural and deterministic (a served mind voices it richer); written
+        # now, seeded and spoken at the next light.
+        try:
+            from mor import dream as _dream
+            drec = _dream.dream(self.space, self.backend, self.day)
+            n = len(drec.get("visions", []))
+            if n:
+                print(ui.dim(f"  ✵ the realm dreams — {n} question"
+                             f"{'s' if n != 1 else ''} carried to the dawn"))
+        except Exception:  # noqa: BLE001 — the dream never haunts the night it ends
+            pass
 
         # Bodies die at dusk (harvested first); the walls and the Chant persist.
         if self.dome:

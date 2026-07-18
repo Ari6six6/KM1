@@ -81,7 +81,7 @@ class Space:
 
     # --- lifecycle -------------------------------------------------------
     def ensure(self) -> "Space":
-        for sub in ("personas", "population", "chants", "days"):
+        for sub in ("personas", "population", "chants", "days", "dreams"):
             (self.root / sub).mkdir(parents=True, exist_ok=True)
         return self
 
@@ -110,6 +110,12 @@ class Space:
 
     def chant_path(self, day: int) -> Path:
         return self.root / "chants" / f"day-{day:04d}.md"
+
+    def dream_path(self, day: int) -> Path:
+        # The Thirteenth: what the realm dreamed the night day N ended — the
+        # structured record, seeded into the next dawn's grimoire and read into
+        # the Cathedral. Keyed by the day that ended, posted at the day that opens.
+        return self.root / "dreams" / f"day-{day:04d}.json"
 
     def persona_path(self, role: str) -> Path:
         return self.root / "personas" / f"{role}.md"

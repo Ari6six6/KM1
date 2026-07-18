@@ -9,4 +9,4 @@ pluggable: a built-in offline stand-in by default, your served model once you
 `gpu serve`. See books/THE_REALM.md for the full design.
 """
 
-__version__ = "0.8.2"
+__version__ = "0.8.3"
