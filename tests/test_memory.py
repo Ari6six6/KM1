@@ -50,3 +50,15 @@ def test_memory_is_wired_into_every_prompt(project):
 
 def test_memory_block_is_empty_when_nothing_matches(project):
     assert memory_block(project, "nothing here") == ""
+
+
+def test_n1_stopword_only_query_injects_nothing(project):
+    """N1 — a content-free query (only stopword / high-df overlap) must not surface
+    a memory block, even with a corpus present."""
+    _seed_past_report(project, "20260101-000000-a-research", "The study of the river and the ford.")
+    _seed_past_report(project, "20260101-000001-b-research", "The map of the region and the roads.")
+    # 'the', 'of', 'and' are stopwords or appear in every doc → no signal
+    assert recall(project, "the and of") == []
+    assert memory_block(project, "what is the and of the") == ""
+    # a real content term still ranks and returns
+    assert recall(project, "ford")             # 'ford' is distinctive → a hit
