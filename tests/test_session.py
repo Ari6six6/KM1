@@ -83,6 +83,17 @@ def test_no_face_reads_another_faces_private_context(project):
     assert any("the road is open" in t["user"] for t in seen)
 
 
+def test_persona_crew_loads_the_masters_pantheon(project):
+    from mor.agent import write_persona_crew, load_crew
+    write_persona_crew(project)
+    crew = load_crew(project)
+    assert [a.name for a in crew] == ["general", "wizard", "warrior"]
+    assert crew[0].name == "general"                       # the General is the lead (hub)
+    warrior = next(a for a in crew if a.name == "warrior")
+    assert warrior.can_egress and "web_fetch" in warrior.tools   # only the Warrior leaves
+    assert not next(a for a in crew if a.name == "wizard").can_egress
+
+
 def test_taint_flag_is_raised_when_outside_data_is_used(project):
     project.allow("example.com")
     s = Session(project, echo=False)

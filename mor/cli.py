@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 from mor import ui
-from mor.agent import load_crew, write_default_crew
+from mor.agent import load_crew, write_default_crew, write_persona_crew
 from mor.config import (Project, current_project_name, endpoint, load_project,
                         projects_root, set_config, use_project, valid_project_name)
 from mor.session import Session
@@ -54,7 +54,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/gpu')} model/status/off/down   pick a model · check · drop tunnel · stop box
   {ui.cyan('/ping')}             check that the model endpoint actually answers
   {ui.cyan('/project')} [name]   show, switch, or create the current project
-  {ui.cyan('/crew')} init        write an editable crew.json you can customize
+  {ui.cyan('/crew')} init|personas   write an editable crew.json (generic · or the pantheon)
   {ui.cyan('/help')}             this
   {ui.cyan('/quit')}             leave
 """
@@ -755,8 +755,14 @@ def _dispatch(session: Session, raw: str) -> bool:
     elif cmd == "crew":
         if rest == "init":
             write_default_crew(project)
-            print(ui.green(f"  wrote {project.root / 'crew.json'} — edit it and it "
-                           "loads next task."))
+            print(ui.green(f"  wrote {project.root / 'crew.json'} (generic) — edit it "
+                           "and it loads next task."))
+        elif rest in ("personas", "pantheon"):
+            write_persona_crew(project)
+            print(ui.green(f"  wrote {project.root / 'crew.json'} — the Master's "
+                           "pantheon: General, Wizard, Warrior."))
+            print(ui.dim("  the General speaks with you and holds the gate; the Wizard "
+                         "sees and remembers; the Warrior alone reaches the web."))
         else:
             _cmd_agents(project)
     else:
@@ -874,6 +880,17 @@ def main(argv=None) -> int:
         return 0
     if argv and argv[0] == "agents":
         _cmd_agents(load_project())
+        return 0
+    if argv and argv[0] == "crew":
+        sub = argv[1] if len(argv) > 1 else ""
+        if sub in ("personas", "pantheon"):
+            write_persona_crew(load_project())
+            print(ui.green("  wrote crew.json — the Master's pantheon: General, Wizard, Warrior."))
+        elif sub == "init":
+            write_default_crew(load_project())
+            print(ui.green("  wrote crew.json (generic)."))
+        else:
+            _cmd_agents(load_project())
         return 0
     repl()
     return 0
