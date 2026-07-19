@@ -31,6 +31,8 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/orders')}           list orders, their state, and their artifacts
   {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
+  {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
+  {ui.cyan('/field')}            the box, its state, and cost so far
   {ui.cyan('/agents')}           list the crew and who can reach the web
   {ui.dim('(the web is open by default — the crew can browse any public site freely)')}
   {ui.cyan('/allow')} <domain>   (only if you ran `config --web gated`) allowlist a domain
@@ -257,6 +259,52 @@ def _cmd_status() -> int:
     return 0
 
 
+def _cmd_up(project) -> int:
+    """Acquire and serve a box (the Field). Reconciles first, so a rent a crash
+    left half-done is healed to exactly one box rather than doubled."""
+    from mor.field import Field
+    field = Field(project)
+    healed = field.reconcile()
+    if healed:
+        print(ui.dim(f"  reconciled {len(healed)} half-rented box(es) from a prior crash"))
+    if field.state == "serving":
+        s = field.summary()
+        print(ui.dim(f"  already up · box {s['instance']} · spent ${s['cost']:.2f}"))
+        return 0
+    field.up()
+    s = field.summary()
+    tag = ui.yellow("  (DEMO — simulated box, no real GPU)") if s["mode"] == "demo" else ""
+    print(ui.green(f"  ● up · {s['state']} · box {s['instance']} · "
+                   f"${s['rate_per_hour']:.2f}/hr") + tag)
+    if s["mode"] == "demo":
+        print(ui.dim("  set a vast.ai key (MOR_VAST_KEY or config vast_api_key) for a real box."))
+    return 0
+
+
+def _cmd_down(project) -> int:
+    from mor.field import Field
+    field = Field(project)
+    if field.current_instance() is None:
+        print(ui.dim("  nothing to bring down — the field is cold."))
+        return 0
+    bill = field.down()
+    print(ui.green(f"  ● down · box destroyed · bill ${bill:.2f}"))
+    return 0
+
+
+def _cmd_field(project) -> int:
+    from mor.field import Field
+    field = Field(project)
+    field.reconcile()
+    s = field.summary()
+    dot = ui.green("●") if s["state"] == "serving" else ui.dim("○")
+    print(f"  {dot} field: {ui.bold(s['state'])} · mode {s['mode']}")
+    if s["instance"]:
+        print(ui.dim(f"    box {s['instance']} · ${s['rate_per_hour']:.2f}/hr · "
+                     f"spent ${s['cost']:.2f} so far"))
+    return 0
+
+
 def _cmd_pull(project, rest: str) -> int:
     from mor.order import OrderStore
     oid = rest.split()[0] if rest.strip() else ""
@@ -336,6 +384,12 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_pull(project, rest)
     elif cmd == "status":
         _cmd_status()
+    elif cmd == "up":
+        _cmd_up(project)
+    elif cmd == "down":
+        _cmd_down(project)
+    elif cmd == "field":
+        _cmd_field(project)
     elif cmd == "agents":
         _cmd_agents(project)
     elif cmd == "allow":
@@ -444,6 +498,12 @@ def main(argv=None) -> int:
         return _cmd_daemon(argv[1:])
     if argv and argv[0] == "status":
         return _cmd_status()
+    if argv and argv[0] == "up":
+        return _cmd_up(load_project())
+    if argv and argv[0] == "down":
+        return _cmd_down(load_project())
+    if argv and argv[0] == "field":
+        return _cmd_field(load_project())
     if argv and argv[0] == "allow":
         _cmd_allow(load_project(), " ".join(argv[1:]).strip())
         return 0

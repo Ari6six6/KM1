@@ -193,9 +193,34 @@ mor status                 # is it up? what's it holding?
 
 It speaks a small, token-authed, loopback HTTP+SSE API (stdlib only): submit an
 order, list orders, fetch one, or stream an order's Hall live as the crew works.
-The token lives at `$MOR_HOME/daemon_token`. This is the first stone of the
-headless life — the self-healing tunnel, the provider lifecycle, and multi-client
-replay attach to this shape.
+The token lives at `$MOR_HOME/daemon_token`.
+
+---
+
+## The Field — the realm owns its compute
+
+The operator rents GPUs by the hour, and the Field owns them so he never holds a
+dead box or a surprise bill:
+
+```sh
+mor up            # rent + serve a box, start the cost meter
+mor field         # its state and dollars spent, to the cent
+mor down          # drain, destroy, print the final bill
+```
+
+Lifecycle: **cold → renting → provisioning → serving → draining → dead**, kept as
+an event log so state is a projection you can trust. It carries the facts/effects
+discipline the whole project builds toward: renting is an **effect** dispatched
+under an idempotency key; replay never re-fires it; on startup the Field
+**reconciles** against provider ground truth. So a crash between "intent: rent"
+and "fact: rented" resolves to **exactly one box, never two** — the wallet test,
+and it's enforced by a test.
+
+Two providers behind one interface: a file-backed **DEMO** provider (the default —
+`mor up` runs the whole lifecycle with a simulated box, no GPU, no spend) and the
+real **vast.ai** adapter (set `MOR_VAST_KEY` or `vast_api_key`). The real
+provisioning bones in `mor gpu` slot in as the *provisioning* step; the Field is
+the state machine, cost ledger, and reconciliation around them.
 
 ---
 
