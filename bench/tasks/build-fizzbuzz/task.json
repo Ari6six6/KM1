@@ -1,0 +1,19 @@
+{
+  "id": "build-fizzbuzz",
+  "kind": "build",
+  "weight": 1.0,
+  "brief": "write fizzbuzz(n) in fizzbuzz.py and a test in test_fizzbuzz.py.",
+  "script": [
+    {"text": "worker, write fizzbuzz.py with fizzbuzz(n) and a test in test_fizzbuzz.py. worker, go."},
+    {"tools": [
+      {"tool": "write_file", "args": {"path": "fizzbuzz.py", "content": "def fizzbuzz(n):\n    if n % 15 == 0:\n        return 'FizzBuzz'\n    if n % 3 == 0:\n        return 'Fizz'\n    if n % 5 == 0:\n        return 'Buzz'\n    return str(n)\n"}},
+      {"tool": "write_file", "args": {"path": "test_fizzbuzz.py", "content": "from fizzbuzz import fizzbuzz\nassert fizzbuzz(3) == 'Fizz'\nassert fizzbuzz(5) == 'Buzz'\nassert fizzbuzz(15) == 'FizzBuzz'\nassert fizzbuzz(7) == '7'\nprint('ok')\n"}}
+    ]},
+    {"text": "Wrote fizzbuzz.py and test_fizzbuzz.py; the test passes. lead, over to you."},
+    {"text": "operator, fizzbuzz is built and tested."}
+  ],
+  "check": {
+    "files": ["fizzbuzz.py", "test_fizzbuzz.py"],
+    "test_file": "test_fizzbuzz.py"
+  }
+}

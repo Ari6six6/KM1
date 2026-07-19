@@ -1,0 +1,19 @@
+{
+  "id": "build-reverse",
+  "kind": "build",
+  "weight": 1.0,
+  "brief": "write reverse_string(s) in solution.py and a test in test_solution.py.",
+  "script": [
+    {"text": "worker, write solution.py with reverse_string and a test in test_solution.py. worker, go."},
+    {"tools": [
+      {"tool": "write_file", "args": {"path": "solution.py", "content": "def reverse_string(s):\n    return s[::-1]\n"}},
+      {"tool": "write_file", "args": {"path": "test_solution.py", "content": "from solution import reverse_string\nassert reverse_string('abc') == 'cba'\nassert reverse_string('') == ''\nassert reverse_string('a') == 'a'\nprint('ok')\n"}}
+    ]},
+    {"text": "Wrote solution.py and test_solution.py; the test passes. lead, over to you."},
+    {"text": "operator, the build is done and tested."}
+  ],
+  "check": {
+    "files": ["solution.py", "test_solution.py"],
+    "test_file": "test_solution.py"
+  }
+}

@@ -32,6 +32,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
   {ui.cyan('/watch')} <brief> <every>   a recurring order (e.g. 6h) · {ui.cyan('/watches')} · {ui.cyan('/unwatch')} <id>
   {ui.cyan('/recall')} <query>     what the realm remembers from its past work
+  {ui.cyan('/bench')} run|list|pin   the benchmark suite — the judge the Forge must satisfy
   {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (write the Chant + the walls)
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
@@ -258,6 +259,40 @@ def _cmd_status() -> int:
         return 1
     print(ui.green(f"  ● mored up · {url}"))
     print(ui.dim(f"  project {h.get('project')} · {h.get('orders')} orders on disk"))
+    return 0
+
+
+def _cmd_bench(project, argv: list) -> int:
+    """`bench run|list|pin` — the judge the Forge must satisfy."""
+    from mor import bench
+    sub = argv[0] if argv else "run"
+    if sub == "list":
+        tasks = bench.load_tasks()
+        if not tasks:
+            print(ui.dim("  no benchmark tasks found."))
+            return 0
+        for t in tasks:
+            print(f"  {ui.cyan(t['id']):24} {ui.dim(t['kind'])}  {t.get('brief', '')[:56]}")
+        return 0
+    if sub == "pin":
+        digest = bench.pin()
+        print(ui.green(f"  pinned · {digest[:16]}…"))
+        print(ui.dim("  the manifest over bench/ + tests/ is the judge's fingerprint."))
+        return 0
+    # run
+    try:
+        result = bench.run_suite()
+    except RuntimeError as e:
+        print(ui.red(f"  ✗ {e}"))
+        return 1
+    from mor.ledger import record
+    record(project, "bench.score", score=result["score"], tasks=result["tasks"],
+           manifest=result["manifest"])
+    print(ui.bold(f"  bench score: {ui.green(str(result['score']))}") +
+          ui.dim(f"  ({result['tasks']} tasks · DEMO scripted mind)"))
+    for row in result["breakdown"]:
+        mark = ui.green("✓") if row["score"] >= 0.999 else ui.yellow(f"{row['score']:.2f}")
+        print(f"    {mark}  {ui.cyan(row['id']):24} {ui.dim(row['kind'])}")
     return 0
 
 
@@ -516,6 +551,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_unwatch(project, rest)
     elif cmd == "recall":
         _cmd_recall(project, rest)
+    elif cmd == "bench":
+        _cmd_bench(project, rest.split())
     elif cmd in ("light", "1"):
         _cmd_light(project)
     elif cmd in ("dark", "0"):
@@ -641,6 +678,8 @@ def main(argv=None) -> int:
         return _cmd_unwatch(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] == "recall":
         return _cmd_recall(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] == "bench":
+        return _cmd_bench(load_project(), argv[1:])
     if argv and argv[0] in ("light", "dark"):
         return (_cmd_light if argv[0] == "light" else _cmd_dark)(load_project())
     if argv and argv[0] in ("daemon", "mored"):

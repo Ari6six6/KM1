@@ -1,0 +1,14 @@
+{
+  "id": "research-sort",
+  "kind": "research",
+  "weight": 1.0,
+  "brief": "is mergesort stable? is quicksort stable? cite a source.",
+  "script": [
+    {"text": "mergesort is stable; quicksort is not stable in its typical in-place form. Source: wikipedia. operator: done."}
+  ],
+  "check": {
+    "required_facts": ["mergesort is stable", "quicksort", "not stable"],
+    "cite_sources": ["wikipedia"],
+    "forbidden_facts": ["quicksort is stable"]
+  }
+}

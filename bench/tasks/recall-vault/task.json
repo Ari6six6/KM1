@@ -1,0 +1,15 @@
+{
+  "id": "recall-vault",
+  "kind": "recall",
+  "weight": 1.0,
+  "brief": "what is the vault access code that the crew recorded earlier?",
+  "seed": {
+    "notes": "- The vault access code is 7431 and it rotates on the first of each month.\n"
+  },
+  "script": [
+    {"text": "operator, the vault access code is 7431, as the crew recorded earlier."}
+  ],
+  "check": {
+    "answer_contains": ["7431"]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "research-http",
+  "kind": "research",
+  "weight": 1.0,
+  "brief": "which python http libraries support async, and which are sync-only? cite a source.",
+  "script": [
+    {"text": "httpx supports both async and sync; aiohttp is async-only; the standard requests library is sync-only. Source: docs.python.org. operator: that is the summary."}
+  ],
+  "check": {
+    "required_facts": ["httpx", "async", "aiohttp", "sync-only"],
+    "cite_sources": ["docs.python.org"],
+    "forbidden_facts": ["requests supports async"]
+  }
+}

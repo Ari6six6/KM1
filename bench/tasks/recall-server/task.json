@@ -1,0 +1,15 @@
+{
+  "id": "recall-server",
+  "kind": "recall",
+  "weight": 1.0,
+  "brief": "what is the staging server hostname the crew noted earlier?",
+  "seed": {
+    "notes": "- The staging server hostname is orion-7 and it lives in the frankfurt region.\n"
+  },
+  "script": [
+    {"text": "operator, the staging server hostname is orion-7, per the crew's earlier note."}
+  ],
+  "check": {
+    "answer_contains": ["orion-7"]
+  }
+}
