@@ -40,13 +40,38 @@ STATES = ("cold", "renting", "provisioning", "serving", "draining", "dead")
 # ==========================================================================
 # providers
 # ==========================================================================
+def pick_offer(offers: list, spec: dict) -> dict | None:
+    """Choose the cheapest offer that meets the spec — enough VRAM, reliable
+    enough, and a real price. Pure, so the selection is tested without the live
+    marketplace. Returns {offer_id, rate_per_hour} or None if nothing qualifies."""
+    min_ram_gb = float(spec.get("min_gpu_ram_gb", 24))
+    min_rel = float(spec.get("min_reliability", 0.90))
+    ok = []
+    for o in offers:
+        ram_gb = float(o.get("gpu_ram", 0)) / 1024.0     # vast reports MB
+        rel = float(o.get("reliability2", o.get("reliability", 1.0)))
+        price = o.get("dph_total")
+        if ram_gb >= min_ram_gb and rel >= min_rel and price is not None:
+            ok.append(o)
+    if not ok:
+        return None
+    best = min(ok, key=lambda o: float(o["dph_total"]))
+    return {"offer_id": str(best.get("id")), "rate_per_hour": float(best["dph_total"])}
+
+
 class Provider:
     name = "provider"
+
+    def find_offer(self, spec: dict) -> dict | None:
+        """Discover a concrete box to rent for this spec — {offer_id,
+        rate_per_hour}. Providers that don't need discovery return None."""
+        return None
 
     def rent(self, spec: dict, *, key: str) -> dict:
         """Rent an instance. **Idempotent by key**: the same key returns the same
         instance, never a second box. Returns an instance dict with at least
-        ``id``, ``label`` (= key), and ``rate_per_hour``."""
+        ``id``, ``label`` (= key), and ``rate_per_hour`` (and, once the box is up,
+        ``ssh_host``/``ssh_port``)."""
         raise NotImplementedError
 
     def status(self, instance_id: str) -> str:
@@ -73,13 +98,18 @@ class FakeProvider(Provider):
     def _load(self) -> dict:
         return load_json(self.path, {"instances": {}, "by_key": {}})
 
+    def find_offer(self, spec: dict) -> dict:
+        return {"offer_id": "fake-offer", "rate_per_hour": float(spec.get("rate_per_hour", 0.40))}
+
     def rent(self, spec: dict, *, key: str) -> dict:
         d = self._load()
         if key in d["by_key"]:                       # idempotent — one box per key
             return d["instances"][d["by_key"][key]]
+        offer = spec.get("offer_id") and spec or {**spec, **self.find_offer(spec)}
         iid = "fake-" + os.urandom(3).hex()
         inst = {"id": iid, "label": key, "provider": "fake", "state": "serving",
-                "rate_per_hour": float(spec.get("rate_per_hour", 0.40))}
+                "rate_per_hour": float(offer.get("rate_per_hour", 0.40)),
+                "ssh_host": f"{iid}.fake.vast", "ssh_port": 22222}
         d["instances"][iid] = inst
         d["by_key"][key] = iid
         save_json(self.path, d)
@@ -125,17 +155,43 @@ class VastProvider(Provider):
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
             return json.loads(r.read().decode("utf-8", "replace") or "{}")
 
+    def _search_offers(self, spec: dict) -> list:
+        """Query the vast marketplace for rentable boxes. Flagged: the query shape
+        needs a live account to confirm; the *selection* (pick_offer) is tested."""
+        q = {"rentable": {"eq": True}, "num_gpus": {"gte": spec.get("num_gpus", 1)},
+             "gpu_ram": {"gte": int(float(spec.get("min_gpu_ram_gb", 24)) * 1024)}}
+        resp = self._call("PUT", "/bundles/", {"q": q})
+        return resp.get("offers", [])
+
+    def find_offer(self, spec: dict) -> dict | None:
+        return pick_offer(self._search_offers(spec), spec)
+
     def rent(self, spec: dict, *, key: str) -> dict:
         for inst in self.list_instances():           # reuse if the key already ran
             if inst.get("label") == key:
                 return inst
-        offer = spec.get("offer_id")
+        rate = float(spec.get("rate_per_hour", 0.0))
+        offer_id = spec.get("offer_id")
+        if not offer_id:                             # V1-WIRE: discover a box first
+            found = self.find_offer(spec)
+            if not found:
+                raise RuntimeError("no vast.ai offer met the spec")
+            offer_id, rate = found["offer_id"], found["rate_per_hour"]
         payload = {"client_id": "me", "image": spec.get("image", "vllm/vllm-openai:latest"),
                    "label": key, "disk": spec.get("disk", 40)}
-        resp = self._call("PUT", f"/asks/{offer}/", payload)
+        resp = self._call("PUT", f"/asks/{offer_id}/", payload)
         iid = str(resp.get("new_contract") or resp.get("id"))
-        return {"id": iid, "label": key, "provider": "vast",
-                "rate_per_hour": float(spec.get("rate_per_hour", 0.0))}
+        return {"id": iid, "label": key, "provider": "vast", "rate_per_hour": rate}
+
+    def wait_ssh(self, instance_id: str, *, tries: int = 60, delay: float = 5.0):
+        """Poll the instance until vast surfaces its ssh host/port, then return
+        (host, port). Flagged: needs a live booting box to exercise."""
+        for _ in range(tries):
+            for inst in self.list_instances():
+                if str(inst["id"]) == str(instance_id) and inst.get("ssh_host"):
+                    return inst["ssh_host"], inst.get("ssh_port")
+            time.sleep(delay)
+        return None, None
 
     def status(self, instance_id: str) -> str:
         for inst in self.list_instances():
@@ -152,7 +208,8 @@ class VastProvider(Provider):
         for row in resp.get("instances", []):
             out.append({"id": str(row.get("id")), "label": row.get("label"),
                         "provider": "vast", "state": row.get("actual_status", "unknown"),
-                        "rate_per_hour": float(row.get("dph_total", 0.0))})
+                        "rate_per_hour": float(row.get("dph_total", 0.0)),
+                        "ssh_host": row.get("ssh_host"), "ssh_port": row.get("ssh_port")})
         return out
 
 

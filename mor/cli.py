@@ -359,6 +359,24 @@ def _cmd_unwatch(project, rest: str) -> int:
     return 0
 
 
+def _provision_via_gpu(field, instance) -> None:
+    """V1-WIRE part 4: get the box's SSH, then hand off to the proven `mor gpu ssh`
+    path (detect → install → serve → tunnel → point the harness at it), so the
+    Field's box and gpucmd's tunnel become one track and `mor gpu watch` heals it.
+    Live-only — this is the wire V1 exercises against a real box."""
+    host, port = instance.get("ssh_host"), instance.get("ssh_port")
+    if not host:
+        print(ui.dim("  waiting for the box's SSH to come up…"))
+        host, port = field.provider.wait_ssh(instance["id"])
+    if not host:
+        print(ui.yellow("  the box never surfaced SSH — check the vast console / `mor field`."))
+        return
+    field._record("fact", action="ssh", instance_id=instance["id"],
+                  ssh_host=host, ssh_port=port)
+    from mor.gpucmd import handle
+    handle(f"ssh -p {port} root@{host} -L 8080:localhost:8080")
+
+
 def _cmd_up(project) -> int:
     """Acquire and serve a box (the Field). Reconciles first, so a rent a crash
     left half-done is healed to exactly one box rather than doubled."""
@@ -371,13 +389,21 @@ def _cmd_up(project) -> int:
         s = field.summary()
         print(ui.dim(f"  already up · box {s['instance']} · spent ${s['cost']:.2f}"))
         return 0
-    field.up()
+    # A real box provisions + tunnels via `mor gpu`; the DEMO box serves instantly.
+    provision = (lambda inst: _provision_via_gpu(field, inst)) if field.mode == "vast" else None
+    try:
+        field.up(provision=provision)
+    except Exception as e:  # noqa: BLE001 — a failed rent/provision reports, never crashes
+        print(ui.red(f"  ✗ up failed: {type(e).__name__}: {e}"))
+        return 1
     s = field.summary()
     tag = ui.yellow("  (DEMO — simulated box, no real GPU)") if s["mode"] == "demo" else ""
     print(ui.green(f"  ● up · {s['state']} · box {s['instance']} · "
                    f"${s['rate_per_hour']:.2f}/hr") + tag)
     if s["mode"] == "demo":
         print(ui.dim("  set a vast.ai key (MOR_VAST_KEY or config vast_api_key) for a real box."))
+    else:
+        print(ui.dim("  run `mor gpu watch` to keep the tunnel self-healing."))
     return 0
 
 

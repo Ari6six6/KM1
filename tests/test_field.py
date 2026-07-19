@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import time
 
-from mor.field import Field, FakeProvider, VastProvider, make_provider
+from mor.field import Field, FakeProvider, VastProvider, make_provider, pick_offer
 
 SPEC = {"rate_per_hour": 0.40}
 
@@ -107,3 +107,61 @@ def test_make_provider_picks_demo_then_vast(project, monkeypatch):
     monkeypatch.setenv("MOR_VAST_KEY", "secret-key")
     prov2, mode2 = make_provider(project)
     assert isinstance(prov2, VastProvider) and mode2 == "vast"
+
+
+# --- V1-WIRE: offer discovery, auto-rent, SSH surfaced, provision seam --------
+def test_pick_offer_chooses_the_cheapest_that_qualifies():
+    offers = [
+        {"id": 1, "gpu_ram": 24 * 1024, "reliability2": 0.99, "dph_total": 0.60},
+        {"id": 2, "gpu_ram": 48 * 1024, "reliability2": 0.99, "dph_total": 0.40},  # winner
+        {"id": 3, "gpu_ram": 16 * 1024, "reliability2": 0.99, "dph_total": 0.10},  # too small
+        {"id": 4, "gpu_ram": 24 * 1024, "reliability2": 0.50, "dph_total": 0.20},  # unreliable
+    ]
+    pick = pick_offer(offers, {"min_gpu_ram_gb": 24, "min_reliability": 0.9})
+    assert pick["offer_id"] == "2" and pick["rate_per_hour"] == 0.40
+    assert pick_offer([], {}) is None
+    assert pick_offer([{"id": 9, "gpu_ram": 8 * 1024, "dph_total": 0.1}],
+                      {"min_gpu_ram_gb": 24}) is None
+
+
+def test_fake_provider_discovers_an_offer_and_surfaces_ssh(project):
+    inst = _provider(project).rent({}, key="k")      # no offer_id → discovers one
+    assert inst["ssh_host"] and inst["ssh_port"] == 22222
+    assert inst["rate_per_hour"] == 0.40
+
+
+def test_field_up_surfaces_ssh_in_the_fact(project):
+    field = Field(project, provider=_provider(project))
+    field.up(SPEC)
+    assert field._last_rent_fact()["instance"].get("ssh_host")
+
+
+def test_field_up_calls_the_provision_seam_with_the_box(project):
+    field = Field(project, provider=_provider(project))
+    seen = []
+    field.up(SPEC, provision=lambda inst: seen.append(inst["id"]))
+    assert seen and seen[0] == field.current_instance()["id"]
+
+
+def test_vast_rent_auto_discovers_and_rents_an_offer(monkeypatch):
+    client = VastProvider("key")
+    calls = []
+
+    def fake_call(method, path, body=None):
+        calls.append((method, path))
+        if path == "/instances/":
+            return {"instances": []}
+        if path == "/bundles/":
+            return {"offers": [
+                {"id": 111, "gpu_ram": 24 * 1024, "reliability2": 0.99, "dph_total": 0.50},
+                {"id": 222, "gpu_ram": 48 * 1024, "reliability2": 0.99, "dph_total": 0.30},
+                {"id": 333, "gpu_ram": 8 * 1024, "reliability2": 0.99, "dph_total": 0.10}]}
+        if path.startswith("/asks/"):
+            return {"new_contract": 9001}
+        return {}
+
+    monkeypatch.setattr(client, "_call", fake_call)
+    inst = client.rent({"min_gpu_ram_gb": 24}, key="k")
+    assert inst["id"] == "9001"
+    assert inst["rate_per_hour"] == 0.30            # cheapest meeting 24GB (offer 222)
+    assert ("PUT", "/asks/222/") in calls

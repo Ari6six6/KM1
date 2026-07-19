@@ -22,10 +22,15 @@ mor up
 mor field          # expect: state serving · mode vast · a real $/hr rate
 ```
 
-`mor up` rents a box, provisions it (the `gpu.py` bones), serves the model, and
-starts the cost meter. If provisioning needs the SSH hand-off, follow with
-`mor gpu ssh <the ssh line vast gave you> -L 8080:localhost:8080` and then
-`mor gpu watch` (next step).
+`mor up` now does the whole wire itself (V1-WIRE): it **discovers** the cheapest
+vast offer meeting the spec, **rents** it, **waits** for the box's SSH, then hands
+off to the proven `mor gpu` path to **provision + serve** the model, open the
+tunnel, and point the harness at it — cost meter running. The Field's box and the
+tunnel are one track now, so the supervisor (next step) heals it.
+
+> This is the code path V1 validates. If offer discovery picks a box that won't
+> serve your model, adjust the spec (VRAM floor) or fall back to the manual path:
+> `mor gpu ssh <the ssh line vast gave you> -L 8080:localhost:8080`.
 
 ## 2. The tunnel heals itself
 
