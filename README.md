@@ -283,6 +283,51 @@ always folds to the same Chant and walls, byte for byte. A served model may late
 
 ---
 
+## The night shift — the Forge and the Dreaming
+
+The realm works the day and earns the night. Three organs in one dusk window,
+each separately verifiable, in this order:
+
+**The Benchmarks** — the judge. A hash-pinned, external, task-level suite that
+publishes one number and is green before any mutant exists.
+
+```sh
+mor bench run          # score the realm · mor bench list · mor bench pin
+```
+
+**The Forge** — strength. One quarantined improvement per cycle, judged only by
+the benchmark, kept only on a measured gain. Three laws, enforced by construction:
+
+```sh
+mor forge once         # a quarantined self-improvement · mor forge log
+```
+
+- **Quarantine** — the improver works in a git worktree, never the live tree; keep
+  is a merge, reject discards the worktree. A kept change takes effect at restart,
+  never mid-flight.
+- **The untouchable judge** — `bench/` and `tests/` are *restored* from the
+  pristine tree before judging, so a mutant that weakens a test is judged by the
+  original. A benchmark gain won by gaming the test is neutralized and rejected.
+- **External fitness** — the only fitness term is the benchmark delta. JUICE =
+  Δbenchmark, and nothing self-awardable.
+
+**The Dreaming** — wonder. At dusk the realm folds the day into a small knowledge
+graph and recombines it into *questions no one asked while awake* — bridges
+(what connects two islands?), negations (which of two contradictions is true?),
+syntheses (are these two things the same?). The questions seed the next dawn and
+aim the Forge. Curiosity aims; the benchmark decides.
+
+```sh
+mor dark               # fold the day (Chant + walls), then dream the questions
+mor light              # dawn: post the Chant + the night's questions
+mor report             # the morning page: work, cost, forge verdicts, questions
+```
+
+Everything here runs **DEMO/offline** with the label until a served mind is
+attached; the benchmark's score is real either way.
+
+---
+
 ## The tools, and the rails
 
 Each agent gets only the tools its definition lists. Every tool returns a plain

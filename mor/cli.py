@@ -34,7 +34,8 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/recall')} <query>     what the realm remembers from its past work
   {ui.cyan('/bench')} run|list|pin   the benchmark suite — the judge the Forge must satisfy
   {ui.cyan('/forge')} once|log     one quarantined self-improvement, judged by the benchmark
-  {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (write the Chant + the walls)
+  {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (fold the day, then dream)
+  {ui.cyan('/report')}           the morning page: work, cost, forge verdicts, the dream
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
   {ui.cyan('/field')}            the box, its state, and cost so far
@@ -339,8 +340,9 @@ def _cmd_bench(project, argv: list) -> int:
 
 
 def _cmd_light(project) -> int:
-    """light — open a day; the Chant that crossed the night is posted first."""
+    """light — open a day; the Chant and the night's dream-questions post first."""
     from mor.day import open_day
+    from mor.dream import dream_questions
     chant = open_day(project)
     print(ui.bold(ui.yellow("  ☀ light")) + ui.dim(" — a new day opens"))
     if chant:
@@ -349,19 +351,61 @@ def _cmd_light(project) -> int:
             print(ui.dim("    " + line))
     else:
         print(ui.dim("  (no chant yet — the first day has no yesterday.)"))
+    questions = dream_questions(project)
+    if questions:
+        print(ui.dim("  the realm woke into its own questions:"))
+        for q in questions:
+            print(ui.cyan(f"    ? {q['text']}"))
     return 0
 
 
 def _cmd_dark(project) -> int:
-    """dark — close the day; fold its Hall into the Chant and the walls."""
+    """dark — the dusk window: fold the day (Chant + walls), then dream the night's
+    questions to seed the dawn. (The Forge runs via `mor forge once`, when on.)"""
     from mor.agent import load_crew
     from mor.day import close_day, todays_hall
+    from mor.dream import dream
     names = [a.name for a in load_crew(project)]
     chant = close_day(project, todays_hall(project), names)
     print(ui.bold(ui.blue("  ☾ dark")) + ui.dim(" — the day closes; the realm sleeps"))
     print(ui.dim("  the chant, kept for the dawn:"))
     for line in chant.splitlines():
         print(ui.dim("    " + line))
+    result = dream(project)
+    if result["questions"]:
+        tag = ui.yellow(" (DEMO extraction)") if result["mode"] == "demo" else ""
+        print(ui.dim("  the realm dreamt") + tag + ui.dim(" — questions for the dawn:"))
+        for q in result["questions"]:
+            print(ui.cyan(f"    ? {q['text']}"))
+    return 0
+
+
+def _cmd_report(project) -> int:
+    """report — the morning page: yesterday's work, cost, forge verdicts, the dream."""
+    from mor.field import Field
+    from mor.ledger import events
+    from mor.order import OrderStore
+    from mor.dream import dream_questions
+    print(ui.bold("  ☕ the morning report"))
+    orders = OrderStore(project).list()[:6]
+    if orders:
+        print(ui.dim("  recent orders:"))
+        for o in orders:
+            print(f"    {ui.cyan(o.id[-12:])}  {ui.dim(o.state)}  {o.brief[:44]}")
+    s = Field(project).summary()
+    print(ui.dim(f"  field: {s['state']} · spent ${s['cost']:.2f} so far"))
+    verdicts = events(project, "forge.verdict")
+    if verdicts:
+        last = verdicts[-1]
+        print(ui.dim(f"  forge: {last.get('verdict')} · JUICE {last.get('juice')} "
+                     f"(Δ{last.get('delta', 0):+.2f})"))
+    else:
+        print(ui.dim("  forge: no cycles yet"))
+    questions = dream_questions(project)
+    if questions:
+        print(ui.dim("  the realm is wondering:"))
+        for q in questions[:5]:
+            print(ui.cyan(f"    ? {q['text']}"))
     return 0
 
 
@@ -601,6 +645,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_light(project)
     elif cmd in ("dark", "0"):
         _cmd_dark(project)
+    elif cmd == "report":
+        _cmd_report(project)
     elif cmd == "status":
         _cmd_status()
     elif cmd == "up":
@@ -728,6 +774,8 @@ def main(argv=None) -> int:
         return _cmd_forge(load_project(), argv[1:])
     if argv and argv[0] in ("light", "dark"):
         return (_cmd_light if argv[0] == "light" else _cmd_dark)(load_project())
+    if argv and argv[0] == "report":
+        return _cmd_report(load_project())
     if argv and argv[0] in ("daemon", "mored"):
         return _cmd_daemon(argv[1:])
     if argv and argv[0] == "status":
