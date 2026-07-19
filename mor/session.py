@@ -63,7 +63,7 @@ class Session:
         if client is not None:
             self.client, self.mode = client, "test"
         else:
-            self.client, self.mode = make_client()
+            self.client, self.mode = self._pick_mind(echo)
         from mor.config import endpoint, web_open
         cfg = endpoint()
         self.shell_mode = cfg.get("shell", "off")
@@ -77,6 +77,21 @@ class Session:
                                      echo=echo)
         self.on_turn = on_turn
         self.tainted: list = []
+
+    def _pick_mind(self, echo: bool):
+        """Route to the active mind in the registry: many boxes → the active one
+        (or the picker on a TTY); one → auto; none → fall back to config/offline."""
+        from mor import mind
+        from mor.llm import OpenAIClient, make_client
+        from mor.config import endpoint
+        box, needs_selection = mind.chosen(self.project)
+        if needs_selection and echo and sys.stdin.isatty():
+            box = mind.prompt_selection(self.project)
+        if box and box.get("base_url"):
+            base = endpoint()
+            return OpenAIClient({**base, "base_url": box["base_url"],
+                                 "model": box.get("model") or base["model"]}), "model"
+        return make_client()
 
     # -- one task --------------------------------------------------------
     def run_task(self, text: str) -> None:

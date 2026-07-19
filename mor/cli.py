@@ -37,8 +37,9 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (fold the day, then dream)
   {ui.cyan('/report')}           the morning page: work, cost, forge verdicts, the dream
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
-  {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
-  {ui.cyan('/field')}            the box, its state, and cost so far
+  {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} [box] destroy/release
+  {ui.cyan('/field')}            the boxes, their state, and cost · {ui.cyan('/field')} rate <box> <$/hr>
+  {ui.cyan('/mind')} [use <n>]   the mind registry — which served box a run routes to
   {ui.cyan('/agents')}           list the crew and who can reach the web
   {ui.dim('(the web is open by default — the crew can browse any public site freely)')}
   {ui.cyan('/allow')} <domain>   (only if you ran `config --web gated`) allowlist a domain
@@ -528,27 +529,86 @@ def _cmd_up(project) -> int:
     return 0
 
 
-def _cmd_down(project) -> int:
+def _cmd_down(project, rest: str = "") -> int:
     from mor.field import Field
+    from mor import mind
+    target = rest.split()[0] if rest.strip() else ""
+    if target:                                   # BYO box: can't API-destroy what we didn't rent
+        box = mind.release(project, target)
+        if box is None:
+            print(ui.yellow(f"  no such box: {target}  (see `mor mind`)"))
+            return 1
+        print(ui.dim(f"  released {box['label']} — stopped watching it. "
+                     "Destroy it in your vast console (we can't API-kill a box we didn't rent)."))
+        return 0
     field = Field(project)
     if field.current_instance() is None:
-        print(ui.dim("  nothing to bring down — the field is cold."))
+        print(ui.dim("  nothing to bring down — the field is cold. "
+                     "(For a BYO box: `mor down <box>`, see `mor mind`.)"))
         return 0
     bill = field.down()
     print(ui.green(f"  ● down · box destroyed · bill ${bill:.2f}"))
     return 0
 
 
-def _cmd_field(project) -> int:
+def _cmd_field(project, rest: str = "") -> int:
     from mor.field import Field
+    from mor import mind
+    parts = rest.split()
+    if parts and parts[0] == "rate" and len(parts) >= 3:     # BYO boxes join the cost ledger
+        if mind.set_rate(project, parts[1], float(parts[2])):
+            print(ui.green(f"  rate for {parts[1]} → ${float(parts[2]):.2f}/hr"))
+        else:
+            print(ui.yellow(f"  no such box: {parts[1]}"))
+        return 0
     field = Field(project)
     field.reconcile()
     s = field.summary()
     dot = ui.green("●") if s["state"] == "serving" else ui.dim("○")
     print(f"  {dot} field: {ui.bold(s['state'])} · mode {s['mode']}")
     if s["instance"]:
-        print(ui.dim(f"    box {s['instance']} · ${s['rate_per_hour']:.2f}/hr · "
+        print(ui.dim(f"    rented box {s['instance']} · ${s['rate_per_hour']:.2f}/hr · "
                      f"spent ${s['cost']:.2f} so far"))
+    _print_registry(project)
+    return 0
+
+
+def _print_registry(project) -> None:
+    from mor import mind
+    bs = [b for b in mind.boxes(project) if b.get("state") in ("serving", "released")]
+    if not bs:
+        return
+    act = mind.active(project)
+    print(ui.dim("  minds:"))
+    for b in bs:
+        star = ui.green(" ◆") if b["label"] == act else "  "
+        print(f"   {star} {ui.cyan(b['label'])}  {ui.dim(b.get('model') or '')}  "
+              f"{b.get('state')}  ${b.get('rate', 0):.2f}/hr")
+
+
+def _cmd_mind(project, argv: list) -> int:
+    """`mind` shows the registry + active mind; `mind use <n|label>` sets it."""
+    from mor import mind
+    if argv and argv[0] == "use" and len(argv) >= 2:
+        box = mind.get(project, argv[1])
+        if not box:
+            print(ui.yellow(f"  no such mind: {argv[1]}  (see `mor mind`)"))
+            return 1
+        mind.set_active(project, box["label"])
+        print(ui.green(f"  active mind → {box['label']}"))
+        return 0
+    serving = mind.serving(project)
+    if not serving:
+        print(ui.dim("  no mind serving — offline stand-in (DEMO). "
+                     "Serve one: `mor gpu ssh <ssh string>` (or `mor up`)."))
+        return 0
+    act = mind.active(project)
+    for i, b in enumerate(serving, 1):
+        star = ui.green("◆") if b["label"] == act else " "
+        print(f"  {star} {i}. {ui.cyan(b['label'])}  {ui.dim(b.get('model') or '')}  "
+              f"{b.get('base_url')}  ${b.get('rate', 0):.2f}/hr")
+    if len(serving) > 1 and not any(b["label"] == act for b in serving):
+        print(ui.dim("  more than one mind — set one: `mor mind use <n|label>`."))
     return 0
 
 
@@ -652,9 +712,11 @@ def _dispatch(session: Session, raw: str) -> bool:
     elif cmd == "up":
         _cmd_up(project)
     elif cmd == "down":
-        _cmd_down(project)
+        _cmd_down(project, rest)
     elif cmd == "field":
-        _cmd_field(project)
+        _cmd_field(project, rest)
+    elif cmd in ("mind", "minds"):
+        _cmd_mind(project, rest.split())
     elif cmd == "agents":
         _cmd_agents(project)
     elif cmd == "allow":
@@ -783,9 +845,11 @@ def main(argv=None) -> int:
     if argv and argv[0] == "up":
         return _cmd_up(load_project())
     if argv and argv[0] == "down":
-        return _cmd_down(load_project())
+        return _cmd_down(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] == "field":
-        return _cmd_field(load_project())
+        return _cmd_field(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] in ("mind", "minds"):
+        return _cmd_mind(load_project(), argv[1:])
     if argv and argv[0] == "allow":
         _cmd_allow(load_project(), " ".join(argv[1:]).strip())
         return 0

@@ -66,9 +66,9 @@ python3 -m pytest -q            # 50 tests, no model or network needed
 
 ## Deploy on a Vast.ai GPU — one command
 
-Rent a box on Vast.ai (it hands you an SSH command like
-`ssh -p 24439 root@1.2.3.4`). Add a `-L` port forward to it and give the whole
-thing to MoRE:
+**You rent the box** on Vast.ai (your hunt, your deal — it hands you an SSH command
+like `ssh -p 24439 root@1.2.3.4`). Add a `-L` port forward and give the whole thing
+to MoRE — this is the primary path:
 
 ```sh
 mor gpu model qwen                                         # pick a model (optional)
@@ -76,10 +76,13 @@ mor gpu ssh -p 24439 root@1.2.3.4 -L 8080:localhost:8080   # do everything
 ```
 
 That single command reaches the box (retrying while it's still booting), detects
-the GPUs, picks a VRAM/context tier, installs vLLM (or builds llama.cpp for GGUF
-models), launches the server **with tool-calling enabled**, opens the SSH tunnel,
-and waits — with a download bar — until the model answers. Then it points the
-harness at `http://localhost:8080/v1` for you. Confirm and go:
+the GPUs, **preflights** (does the model repo + exact file resolve on Hugging Face?
+does the disk fit the weights? does the GPU support the quantization? — each a
+three-second answer *before* any paid install), picks a VRAM/context tier, installs
+vLLM (or builds llama.cpp for GGUF), launches the server **with tool-calling
+enabled**, opens the SSH tunnel, runs a **canary** (one real tool-call — "up" means
+*can think*, not just *lists models*), and adopts the box into the mind registry.
+Then it points the harness at `http://localhost:8080/v1` for you. Confirm and go:
 
 ```sh
 mor ping        # ✓ answered in 12.3s: pong
@@ -244,6 +247,18 @@ Two providers behind one interface: a file-backed **DEMO** provider (the default
 real **vast.ai** adapter (set `MOR_VAST_KEY` or `vast_api_key`). The real
 provisioning bones in `mor gpu` slot in as the *provisioning* step; the Field is
 the state machine, cost ledger, and reconciliation around them.
+
+**BYO is the primary path; `mor up` is the opt-in auto-rent.** You usually rent on
+the vast console yourself and paste one `mor gpu ssh` string (above); `mor up` is
+there when you'd rather the harness rent for you. Either way the box joins one
+**mind registry**, and when more than one mind is serving, a run asks which:
+
+```sh
+mor mind                 # the served boxes · which one is active
+mor mind use 2           # route runs to box 2
+mor field rate byo-… 0.40   # give a BYO box a $/hr so it joins the cost ledger
+mor down byo-…           # release a BYO box (destroy it in your console)
+```
 
 ---
 

@@ -4,10 +4,13 @@ One row per model: its weights, runtime (vLLM FP8 or llama.cpp GGUF), VRAM floor
 and how context scales with VRAM. `gpu model <key>` picks a row; `gpu ssh …` serves
 whatever is selected. GLM is the default — the operator's daily driver.
 
-NOTE: these rows are ASPIRATIONAL — the `repo`/`served_name` values are the intended
-Hugging Face repos and served names, and a serve will fail at launch if a given repo
-or exact name doesn't resolve on the box. Treat the catalog as a starting set to
-confirm against real repos, not a guarantee that every row serves as-is today.
+NOTE: these rows are a STARTING SET — the `repo`/`served_name`/`gguf_file` values
+are the intended Hugging Face repos, served names, and exact GGUF filenames. They
+are no longer taken on faith: `mor gpu ssh` runs a resolution preflight
+(`mor/preflight.py`, P0-1) that checks the repo and the exact file resolve on
+Hugging Face — in ~3 seconds, before any paid install — and suggests near-match
+files when a name is wrong. Confirm a row against a real serve (V1) before leaning
+on it; the preflight turns a bad row into a fast, clear failure, not a burned hour.
 """
 
 from __future__ import annotations

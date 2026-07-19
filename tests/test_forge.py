@@ -103,6 +103,19 @@ def test_a_measured_gain_is_kept_and_merged(forge_repo):
     assert (forge_repo / "mor" / "_forge_marker.py").exists()      # merged into the live tree
 
 
+def test_an_empty_proposal_is_reported_distinctly(forge_repo):
+    script = [
+        {"text": "worker, have a look. worker, go."},
+        {"text": "Nothing needs changing. lead, over to you."},
+        {"text": "operator, I made no change."},
+    ]
+    result = forge.forge_once(
+        repo=forge_repo, client=ScriptClient(script),
+        score_fn=lambda t: {"score": 100.0, "breakdown": [{"id": "x", "kind": "build", "score": 0.5}]},
+        rails_fn=lambda t: True)
+    assert result["verdict"] == "empty" and result["delta"] == 0.0
+
+
 def test_a_rails_break_vetoes_a_benchmark_gain(forge_repo):
     script = [
         {"text": "worker, add mor/_bad.py. worker, go."},

@@ -50,6 +50,21 @@ def _alive(pid) -> bool:
         return False
 
 
+def _box_endpoint(cargs: list):
+    """(host, port) of the box from its ssh connection args — for the registry."""
+    host, port = None, None
+    i = 0
+    while i < len(cargs):
+        a = cargs[i]
+        if a == "-p" and i + 1 < len(cargs):
+            port, i = cargs[i + 1], i + 2
+            continue
+        if not a.startswith("-"):
+            host = a.split("@")[-1]
+        i += 1
+    return host, port
+
+
 def _kill_tunnel(state: dict) -> None:
     pid = state.get("tunnel_pid")
     if _alive(pid):
@@ -216,6 +231,24 @@ def handle(rest: str, out=print) -> None:
             out(ui.yellow("  tunnel up and the server is launching, but it didn't "
                           "answer in time — weights may still be loading."))
             out(ui.dim("     check with `mor gpu status` or `mor ping` in a few minutes."))
+
+        # adopt the working box into the mind registry (R2.1) — a BYO box the
+        # Master rented himself joins the same registry as a rented one, so a
+        # second `gpu ssh` gives him the selection window on the next order.
+        if ready:
+            try:
+                from mor.config import load_project
+                from mor import mind
+                proj = load_project()
+                bhost, bport = _box_endpoint(cargs)
+                label = mind.next_byo_label(proj, bhost or "box")
+                mind.register_box(proj, label=label, base_url=base_url,
+                                  model=spec.served_name, ssh_host=bhost, ssh_port=bport,
+                                  source="byo")
+                out(ui.dim(f"  adopted into the registry as {label} — `mor mind` to list; "
+                           "set a rate with `mor field rate <box> <$/hr>`."))
+            except Exception:  # noqa: BLE001 — adoption is a convenience, never fatal
+                pass
 
     elif sub in ("model", "models"):
         if len(parts) < 2:

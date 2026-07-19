@@ -138,26 +138,34 @@ def forge_once(repo=None, *, client=None, brief=None, epsilon: float = 1.0, tag=
     verdict_event = None
     try:
         _propose(wt, brief, client)
-        patch_summary = _git(wt, "diff", "--stat").strip().splitlines()[-1:] or ["(no change)"]
+        if not _git(wt, "status", "--porcelain").strip():
+            # N2 — an empty proposal is a wasted cycle, not a "no gain" verdict.
+            verdict_event = {"kind": "forge.verdict", "brief": brief, "verdict": "empty",
+                             "reason": "empty proposal — the smith changed nothing",
+                             "baseline": baseline, "new": baseline, "delta": 0.0,
+                             "juice": baseline, "manifest_hash": compute_manifest(),
+                             "patch_summary": "(no change)"}
+        else:
+            patch_summary = _git(wt, "diff", "--stat").strip().splitlines()[-1:] or ["(no change)"]
 
-        # LAW OF THE UNTOUCHABLE JUDGE — restore the judge before it judges.
-        _git(wt, "checkout", "HEAD", "--", "bench", "tests")
-        manifest_hash = compute_manifest()
+            # LAW OF THE UNTOUCHABLE JUDGE — restore the judge before it judges.
+            _git(wt, "checkout", "HEAD", "--", "bench", "tests")
+            manifest_hash = compute_manifest()
 
-        rails_ok = rails_fn(wt)
-        new = float(score_fn(wt)["score"])
-        delta = round(new - baseline, 4)
-        verdict, reason = decide(rails_ok, baseline, new, epsilon)
+            rails_ok = rails_fn(wt)
+            new = float(score_fn(wt)["score"])
+            delta = round(new - baseline, 4)
+            verdict, reason = decide(rails_ok, baseline, new, epsilon)
 
-        if verdict == "keep":
-            _git(wt, "add", "-A")
-            _git(wt, "commit", "-m", f"forge: {brief[:60]}")
-            _git(repo, "merge", branch, "-m", f"forge: keep — {reason} (+{delta})")
+            if verdict == "keep":
+                _git(wt, "add", "-A")
+                _git(wt, "commit", "-m", f"forge: {brief[:60]}")
+                _git(repo, "merge", branch, "-m", f"forge: keep — {reason} (+{delta})")
 
-        verdict_event = {"kind": "forge.verdict", "brief": brief, "verdict": verdict,
-                         "reason": reason, "baseline": baseline, "new": new,
-                         "delta": delta, "juice": new, "manifest_hash": manifest_hash,
-                         "patch_summary": patch_summary[0].strip()}
+            verdict_event = {"kind": "forge.verdict", "brief": brief, "verdict": verdict,
+                             "reason": reason, "baseline": baseline, "new": new,
+                             "delta": delta, "juice": new, "manifest_hash": manifest_hash,
+                             "patch_summary": patch_summary[0].strip()}
     finally:
         _git(repo, "worktree", "remove", "--force", str(wt), check=False)
         if verdict_event is None or verdict_event["verdict"] != "keep":
