@@ -31,6 +31,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/orders')}           list orders, their state, and their artifacts
   {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
   {ui.cyan('/watch')} <brief> <every>   a recurring order (e.g. 6h) · {ui.cyan('/watches')} · {ui.cyan('/unwatch')} <id>
+  {ui.cyan('/recall')} <query>     what the realm remembers from its past work
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
   {ui.cyan('/field')}            the box, its state, and cost so far
@@ -259,6 +260,23 @@ def _cmd_status() -> int:
     return 0
 
 
+def _cmd_recall(project, rest: str) -> int:
+    """`recall <query>` — what the realm remembers, from its own past work."""
+    from mor.memory import recall
+    q = rest.strip()
+    if not q:
+        print(ui.yellow("usage: /recall <query>"))
+        return 2
+    hits = recall(project, q)
+    if not hits:
+        print(ui.dim("  nothing in memory matches that yet."))
+        return 0
+    for src, snip in hits:
+        print(f"  {ui.cyan(src)}")
+        print(ui.dim(f"    {snip[:220]}"))
+    return 0
+
+
 def _cmd_watch(project, rest: str) -> int:
     """`watch [kind] <brief> <every>` — a recurring order the daemon runs on a
     schedule. The last token is the interval (90s · 30m · 6h · 1d); an optional
@@ -442,6 +460,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_watches(project)
     elif cmd == "unwatch":
         _cmd_unwatch(project, rest)
+    elif cmd == "recall":
+        _cmd_recall(project, rest)
     elif cmd == "status":
         _cmd_status()
     elif cmd == "up":
@@ -561,6 +581,8 @@ def main(argv=None) -> int:
         return 0
     if argv and argv[0] == "unwatch":
         return _cmd_unwatch(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] == "recall":
+        return _cmd_recall(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] in ("daemon", "mored"):
         return _cmd_daemon(argv[1:])
     if argv and argv[0] == "status":

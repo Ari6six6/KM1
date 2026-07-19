@@ -247,6 +247,23 @@ the state machine, cost ledger, and reconciliation around them.
 
 ---
 
+## Memory
+
+The realm remembers its own work. Every face's turn is seeded with the passages
+most relevant to what's being discussed — drawn from **past order reports and the
+project notes** (a lexical BM25 leg, stdlib only) — so it cites what it learned
+last week without being told where to look. Query it yourself:
+
+```sh
+mor recall "is the north road passable"
+```
+
+It reads only the realm's own memory (reports, notes), never arbitrary workspace
+files, so nothing private leaks in through the back door. Embeddings and
+model-assisted extraction are a later layer; the retrieval seam is here now.
+
+---
+
 ## The tools, and the rails
 
 Each agent gets only the tools its definition lists. Every tool returns a plain

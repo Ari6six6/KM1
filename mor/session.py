@@ -109,6 +109,13 @@ class Session:
                           tainted=self.tainted)
         tools = build_tools(agent.tools, ctx)
         user = self._task(name, heard_from, heard, opening=opening, close=close)
+        # What the realm remembers from earlier work, relevant to this turn — wired
+        # into every prompt so a face cites last week's findings without being told
+        # where to look. Drawn only from the realm's own memory (reports, notes).
+        from mor.memory import memory_block
+        mem = memory_block(self.project, heard or "")
+        if mem:
+            user = mem + "\n\n" + user
         seed = self._seed(name, opening=opening, close=close)
         steps = 12 if (agent.can_egress or "run_shell" in agent.tools) else 8
 
