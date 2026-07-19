@@ -341,6 +341,21 @@ mor report             # the morning page: work, cost, forge verdicts, questions
 Everything here runs **DEMO/offline** with the label until a served mind is
 attached; the benchmark's score is real either way.
 
+### Point at it — the Cathedral
+
+The realm renders itself as one **self-contained page** — no network, no
+dependency, so it opens on a phone. Two windows: the **mind** (the knowledge graph
+as a constellation computed in pure Python, the night's dream, the Chant, the day
+in the Hall) and the **operation** (orders, the JUICE curve, burn rate).
+
+```sh
+mor cathedral            # write cathedral.html · or `mor daemon`, then GET /cathedral
+```
+
+And the pantheon is yours — `mor crew personas` writes the scripture's cast
+(General · Wizard · Warrior) as an editable `crew.json`. Names are your skin; the
+Hall and the rails are the bones underneath.
+
 ---
 
 ## The tools, and the rails
@@ -371,6 +386,14 @@ observation the agent reads on its next step.
     outside data says so when it reports back.
 - **`remember`** — appends a durable note to the project's memory, shown to the
   crew next session.
+- **forged tools — the Yard.** A tool the crew writes (`run(args)`) never runs in
+  the realm's process. The **Yard** runs it as a subprocess over a tiny JSON RPC,
+  under CPU / memory / wall-clock limits, so a forged tool can crash, loop, or bomb
+  memory and the realm reaps it with a structured error and moves on. `mor yard`.
+  (Full network/filesystem jailing — `--cap-drop ALL --network internal` inside a
+  body — is the container layer that slots onto this same subprocess seam when a
+  runtime is present; without one the tool is out-of-process and bounded but not
+  network-isolated, which the Yard states rather than pretends.)
 
 ---
 

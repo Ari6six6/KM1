@@ -37,6 +37,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (fold the day, then dream)
   {ui.cyan('/report')}           the morning page: work, cost, forge verdicts, the dream
   {ui.cyan('/cathedral')}        render the realm as one page — a mind you can watch think
+  {ui.cyan('/yard')} list|run    forged tools, run jailed (never in the realm's process)
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} [box] destroy/release
   {ui.cyan('/field')}            the boxes, their state, and cost · {ui.cyan('/field')} rate <box> <$/hr>
@@ -382,6 +383,33 @@ def _cmd_dark(project) -> int:
     return 0
 
 
+def _cmd_yard(project, argv: list) -> int:
+    """`yard list` · `yard run <name> [json-args]` — run a forged tool, jailed."""
+    from mor import yard
+    sub = argv[0] if argv else "list"
+    if sub == "run" and len(argv) >= 2:
+        import json
+        try:
+            args = json.loads(argv[2]) if len(argv) > 2 else {}
+        except ValueError:
+            print(ui.yellow("  args must be JSON, e.g. '{\"a\": 1}'"))
+            return 2
+        result = yard.run_named(project, argv[1], args)
+        if result.get("ok"):
+            print(ui.green("  ✓ ") + ui.dim(str(result["result"])))
+        else:
+            print(ui.yellow("  ✗ the Yard: ") + ui.dim(result.get("error", "")))
+        return 0
+    tools = yard.list_forged(project)
+    if not tools:
+        print(ui.dim("  no forged tools yet. A forged tool is a small module with "
+                     "run(args); it runs jailed, never in the realm's process."))
+        return 0
+    for t in tools:
+        print(f"  {ui.cyan(t)}")
+    return 0
+
+
 def _cmd_cathedral(project) -> int:
     """cathedral — render the realm as one self-contained page you can point at."""
     from mor.cathedral import render
@@ -721,6 +749,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_report(project)
     elif cmd == "cathedral":
         _cmd_cathedral(project)
+    elif cmd == "yard":
+        _cmd_yard(project, rest.split())
     elif cmd == "status":
         _cmd_status()
     elif cmd == "up":
@@ -860,6 +890,8 @@ def main(argv=None) -> int:
         return _cmd_report(load_project())
     if argv and argv[0] == "cathedral":
         return _cmd_cathedral(load_project())
+    if argv and argv[0] == "yard":
+        return _cmd_yard(load_project(), argv[1:])
     if argv and argv[0] in ("daemon", "mored"):
         return _cmd_daemon(argv[1:])
     if argv and argv[0] == "status":
