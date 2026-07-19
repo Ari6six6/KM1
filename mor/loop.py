@@ -37,8 +37,13 @@ _EMPTY_NUDGE = (
 
 def think_and_act(client, *, system: str, user: str, tools: list, ctx,
                   seed: str | None = None, log=lambda *_: None,
-                  max_steps: int = _MAX_STEPS):
-    """Run one agent turn. Returns (spoken_line, tainted)."""
+                  max_steps: int = _MAX_STEPS, cancel=None, on_token=None):
+    """Run one agent turn. Returns (spoken_line, tainted).
+
+    ``on_token`` (if given) receives the model's text deltas as they stream, so a
+    caller can render a mind thinking rather than a spinner. ``cancel`` (a
+    ``Cancel`` token) stops the turn between steps and mid-completion — the turn
+    returns whatever line it has so far, leaving the transcript consistent."""
     if isinstance(client, MockClient) and seed is not None:
         client.seed(seed)
 
@@ -53,11 +58,15 @@ def think_and_act(client, *, system: str, user: str, tools: list, ctx,
 
     step = 0
     while step < budget:
+        if cancel is not None and cancel.is_set():
+            return (last_text or "(interrupted)").strip(), bool(ctx.tainted)
         if not warned and step == budget - 2 and budget > 2:
             messages.append({"role": "user", "content": _BUDGET_NUDGE})
             warned = True
 
-        res = client.chat(messages, openai_tools)
+        res = client.stream_chat(messages, openai_tools, on_token=on_token, cancel=cancel)
+        if res.cancelled:
+            return (res.content or last_text or "(interrupted)").strip(), bool(ctx.tainted)
 
         if not res.tool_calls:
             if (not (res.content or "").strip() and not empty_nudged
@@ -90,6 +99,6 @@ def think_and_act(client, *, system: str, user: str, tools: list, ctx,
 
     messages.append({"role": "user",
                      "content": "Enough acting. Say your line now, in plain English."})
-    res = client.chat(messages, None)
+    res = client.stream_chat(messages, None, on_token=on_token, cancel=cancel)
     line = (res.content or last_text or "(ran out of steps)").strip()
     return line, bool(ctx.tainted)

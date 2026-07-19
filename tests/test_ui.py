@@ -1,4 +1,4 @@
-"""The thinking-ticker: inert off a TTY, live on one."""
+"""The live token line: inert off a TTY, streams and clears on one."""
 
 from __future__ import annotations
 
@@ -7,20 +7,20 @@ import sys
 from mor import ui
 
 
-def test_spinner_is_inert_off_a_tty(monkeypatch):
+def test_streamer_is_inert_off_a_tty(monkeypatch, capsys):
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False, raising=False)
-    with ui.Spinner("lead is thinking") as sp:
-        assert sp.active is False       # no thread, no output on a pipe
-        sp.set("lead · web_fetch")      # never raises
-    assert sp.active is False
+    with ui.Streamer("lead") as st:
+        assert st.active is False       # no output on a pipe
+        st.feed("some tokens")          # never raises, prints nothing
+    assert st.active is False
+    assert capsys.readouterr().out == ""
 
 
-def test_spinner_runs_and_clears_on_a_tty(monkeypatch, capsys):
+def test_streamer_renders_tokens_and_clears_on_a_tty(monkeypatch, capsys):
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
-    import time
-    with ui.Spinner("worker is thinking") as sp:
-        assert sp.active is True
-        time.sleep(0.25)                # let it draw a few frames
-        sp.set("worker · run_shell")
+    with ui.Streamer("worker") as st:
+        assert st.active is True
+        st.feed("hello ")
+        st.feed("world")
     out = capsys.readouterr().out
-    assert "worker" in out and "\r" in out   # it drew, then cleared the line
+    assert "worker" in out and "world" in out and "\r" in out   # drew, then cleared

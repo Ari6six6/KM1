@@ -49,59 +49,47 @@ def bar(fraction: float, width: int = 22, label: str = "") -> str:
     return f"[{body}] {int(fraction * 100):3d}%{tail}"
 
 
-class Spinner:
-    """A live 'is thinking…' ticker for the long, silent model calls.
+class Streamer:
+    """A live token line: the model's words as they arrive, on one rewritten line.
 
-    A daemon thread rewrites one line — ``⠋ lead is thinking… 8.4s`` — so a slow
-    turn never looks frozen. TTY-only: on a pipe or in tests it does nothing and
-    ``active`` stays False, so callers can fall back to plain logging. ``set()``
-    updates the label mid-turn (e.g. to the tool currently running)."""
+    This is the answer to 'a spinner where the agent's thoughts should be' — while
+    a turn runs, the operator watches the text stream in, capped to a trailing
+    window so it stays on one line and erases cleanly. TTY-only: on a pipe or in
+    tests it does nothing and ``active`` stays False. ``feed`` is the on_token
+    callback; ``clear`` wipes the line so a tool-observation log can print above
+    it, and the next token re-renders."""
 
-    FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
-    def __init__(self, label: str = "working"):
-        self.label = label
+    def __init__(self, name: str, width: int = 72):
+        self.name = name
+        self.width = width
+        self._buf = ""
         self.active = False
-        self._stop = None
-        self._thread = None
-        self._t0 = None
-
-    def set(self, label: str) -> None:
-        self.label = label
 
     def __enter__(self):
-        import sys
-        import threading
-        import time
         if sys.stdout.isatty():
             self.active = True
-            self._stop = threading.Event()
-            self._t0 = time.time()
-            self._thread = threading.Thread(target=self._run, daemon=True)
-            self._thread.start()
+            self._render()
         return self
 
-    def _run(self):
-        import sys
-        import time
-        i = 0
-        while not self._stop.wait(0.1):
-            i += 1
-            frame = self.FRAMES[i % len(self.FRAMES)]
-            sys.stdout.write("\r  " + cyan(frame) + " "
-                             + dim(f"{self.label}… {time.time() - self._t0:.1f}s") + "   ")
+    def feed(self, delta: str) -> None:
+        if not self.active or not delta:
+            return
+        self._buf += delta
+        self._render()
+
+    def _render(self) -> None:
+        tail = " ".join(self._buf.split())[-self.width:]
+        sys.stdout.write("\r\033[2K  " + cyan(self.name) + dim(" ▍ ") + dim(tail))
+        sys.stdout.flush()
+
+    def clear(self) -> None:
+        if self.active:
+            sys.stdout.write("\r\033[2K")
             sys.stdout.flush()
 
     def __exit__(self, *a):
-        import sys
+        self.clear()
         self.active = False
-        if self._stop:
-            self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=0.3)
-        if sys.stdout.isatty():
-            sys.stdout.write("\r" + " " * 80 + "\r")
-            sys.stdout.flush()
 
 
 def line(speaker: str, addressee, text: str) -> str:

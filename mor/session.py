@@ -9,11 +9,14 @@ turn cap guarantees every round ends.
 from __future__ import annotations
 
 import re
+import signal
+import sys
 import time
+from contextlib import nullcontext
 
 from mor.agent import build_system, load_crew
 from mor.config import load_project
-from mor.llm import MockClient, make_client
+from mor.llm import Cancel, make_client
 from mor.loop import think_and_act
 from mor.tools import ToolContext, build_tools
 from mor.transcript import Transcript
@@ -103,21 +106,44 @@ class Session:
         seed = self._seed(name, opening=opening, close=close)
         steps = 12 if (agent.can_egress or "run_shell" in agent.tools) else 8
 
-        # A live ticker so a slow turn never looks frozen. On a TTY it shows
-        # "⠋ {name} is thinking… 8.4s" and updates to the tool currently running;
-        # off a TTY (headless/piped) it's inert and the tool logs print plainly.
-        sp = ui.Spinner(f"{name} is thinking")
+        # On a live TTY, stream the model's tokens as they land — the operator
+        # watches a mind think, not a spinner. Ctrl-C sets a cancel token that
+        # stops this turn (not the session); the handler is restored after.
+        # Off a TTY (headless/piped) or in tests, the streamer is inert and tool
+        # logs print plainly, exactly as before.
+        live = self.transcript.echo and sys.stdout.isatty()
+        streamer = ui.Streamer(name) if live else None
+        cancel = Cancel()
 
         def _log(m):
-            if sp.active:
-                sp.set(f"{name} · " + (m or "").strip().lstrip("·").strip()[:50])
-            elif self.transcript.echo:
-                print(ui.dim(m))
+            msg = (m or "").strip()
+            if not msg:
+                return
+            if streamer:
+                streamer.clear()
+            if self.transcript.echo:
+                print(ui.dim(msg))
 
-        with sp:
-            spoken, _ = think_and_act(
-                self.client, system=system, user=user, tools=tools, ctx=ctx,
-                seed=seed, log=_log, max_steps=steps)
+        prev_sigint, installed = None, False
+        if live:
+            try:
+                prev_sigint = signal.signal(signal.SIGINT, lambda *_: cancel.set())
+                installed = True
+            except (ValueError, OSError):
+                installed = False   # not the main thread — Ctrl-C stays default
+        try:
+            with (streamer or nullcontext()):
+                spoken, _ = think_and_act(
+                    self.client, system=system, user=user, tools=tools, ctx=ctx,
+                    seed=seed, log=_log, max_steps=steps,
+                    cancel=cancel, on_token=(streamer.feed if streamer else None))
+        finally:
+            if installed:   # always hand SIGINT back, so Ctrl-C at the prompt quits
+                try:
+                    signal.signal(signal.SIGINT,
+                                  prev_sigint or signal.default_int_handler)
+                except (ValueError, OSError):
+                    pass
         return spoken
 
     def _task(self, name: str, heard_from: str, heard: str, *,
