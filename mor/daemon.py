@@ -138,6 +138,30 @@ class _Handler(BaseHTTPRequestHandler):
             return   # the client walked away; the order runs on regardless
 
 
+def reconcile(project, store) -> list:
+    """On startup, finish what a crash interrupted (G1 — 'works in the dark').
+
+    Any order not in a terminal state is one a kill -9 stranded mid-flight. We
+    re-execute it on a daemon thread, first stamping a ``resumed`` event so the log
+    keeps the scar. Three rules, so this grows into M3's effects discipline instead
+    of against it:
+
+      1. Resume re-runs from the last durable boundary — the order itself. For
+         ``research`` that is idempotent (re-run the crew, re-write the report).
+      2. Resume never re-fires an external effect. When the Field lands, rent/serve
+         are Facts with provider evidence; reconciliation will adopt, not re-rent.
+      3. A resumed order records the scar. The covenant applies to failures too.
+    """
+    resumed = []
+    for order in store.list():
+        if order.state not in _TERMINAL:
+            order.record("resumed", from_state=order.state)
+            threading.Thread(target=execute_order, args=(project, order),
+                             kwargs={"echo": False}, daemon=True).start()
+            resumed.append(order.id)
+    return resumed
+
+
 def make_server(project=None, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
                 token: str | None = None) -> ThreadingHTTPServer:
     from mor.config import load_project, daemon_token
@@ -146,6 +170,8 @@ def make_server(project=None, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT
     httpd.project = project
     httpd.store = OrderStore(project)
     httpd.token = token or daemon_token()
+    # Finish any order a previous instance was killed mid-flight (G1).
+    httpd.resumed = reconcile(project, httpd.store)
     return httpd
 
 
@@ -157,6 +183,9 @@ def serve(project=None, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> N
     url = f"http://{host}:{port}"
     print(ui.green(f"  mored up · {url} · project {current_project_name()}"))
     print(ui.dim(f"  token at $MOR_HOME/daemon_token · GET {url}/health for liveness"))
+    if httpd.resumed:
+        print(ui.yellow(f"  resumed {len(httpd.resumed)} order(s) a prior instance "
+                        "left mid-flight"))
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -180,8 +180,10 @@ model attached the flow still runs and delivers, labelled **DEMO**.
 
 A REPL is a session; a daemon is a presence. `mored` owns the realm and runs
 orders **in its own process**, so the work continues whether or not you're
-watching — and because an order's state is a projection of its event log, a
-daemon that is killed and restarted resumes every order exactly.
+watching. Because an order's state is a projection of its event log, a daemon
+that is killed and restarted rebuilds every order's state from the log **and
+re-runs any order left mid-flight to completion** — it records a `resumed` event
+so the log keeps the scar. Works in the dark, survives its own death.
 
 ```sh
 mor daemon                 # run the daemon in the foreground

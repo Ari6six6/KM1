@@ -11,6 +11,7 @@ import urllib.error
 import pytest
 
 from mor.daemon import make_server, DaemonClient
+from mor.order import OrderStore
 
 
 @pytest.fixture()
@@ -87,3 +88,30 @@ def test_a_restarted_daemon_resumes_order_state(daemon):
     finally:
         fresh.shutdown()
         fresh.server_close()
+
+
+def test_a_restarted_daemon_resumes_a_stranded_order(project):
+    """G1 — Kimi's kill -9 experiment as a test. An order marked executing and never
+    finished (as a killed daemon leaves it) is re-executed to delivery by the next
+    daemon, and the log carries a `resumed` scar."""
+    store = OrderStore(project)
+    stranded = store.create("research", "interrupted work")
+    stranded.record("planned")
+    stranded.record("executing")            # the crash: stuck here, never delivered
+    assert stranded.state == "executing"
+
+    # a fresh daemon starts (make_server reconciles) and finishes the order
+    httpd = make_server(project, host="127.0.0.1", port=0, token="test-token")
+    try:
+        assert stranded.id in httpd.resumed
+        end = time.time() + 10
+        while time.time() < end:
+            if store.load(stranded.id).state in ("delivered", "failed"):
+                break
+            time.sleep(0.02)
+        reloaded = store.load(stranded.id)
+        assert reloaded.state == "delivered"
+        assert any(e["kind"] == "resumed" and e.get("from_state") == "executing"
+                   for e in reloaded.events)
+    finally:
+        httpd.server_close()
