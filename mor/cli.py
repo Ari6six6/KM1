@@ -36,6 +36,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/forge')} once|log     one quarantined self-improvement, judged by the benchmark
   {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (fold the day, then dream)
   {ui.cyan('/report')}           the morning page: work, cost, forge verdicts, the dream
+  {ui.cyan('/cathedral')}        render the realm as one page — a mind you can watch think
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} [box] destroy/release
   {ui.cyan('/field')}            the boxes, their state, and cost · {ui.cyan('/field')} rate <box> <$/hr>
@@ -381,6 +382,17 @@ def _cmd_dark(project) -> int:
     return 0
 
 
+def _cmd_cathedral(project) -> int:
+    """cathedral — render the realm as one self-contained page you can point at."""
+    from mor.cathedral import render
+    path = project.root / "cathedral.html"
+    path.write_text(render(project))
+    print(ui.green(f"  ⛪ the cathedral is rendered · {path}"))
+    print(ui.dim("  open it in a browser (or scp to your phone) · or `mor daemon`, "
+                 "then http://127.0.0.1:8787/cathedral"))
+    return 0
+
+
 def _cmd_report(project) -> int:
     """report — the morning page: yesterday's work, cost, forge verdicts, the dream."""
     from mor.field import Field
@@ -707,6 +719,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_dark(project)
     elif cmd == "report":
         _cmd_report(project)
+    elif cmd == "cathedral":
+        _cmd_cathedral(project)
     elif cmd == "status":
         _cmd_status()
     elif cmd == "up":
@@ -838,6 +852,8 @@ def main(argv=None) -> int:
         return (_cmd_light if argv[0] == "light" else _cmd_dark)(load_project())
     if argv and argv[0] == "report":
         return _cmd_report(load_project())
+    if argv and argv[0] == "cathedral":
+        return _cmd_cathedral(load_project())
     if argv and argv[0] in ("daemon", "mored"):
         return _cmd_daemon(argv[1:])
     if argv and argv[0] == "status":

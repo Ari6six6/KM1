@@ -74,6 +74,18 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             return self._json(200, {"ok": True, "project": self.server.project.name,
                                     "orders": len(self.server.store.list())})
+        if self.path in ("/cathedral", "/"):
+            from mor.cathedral import render
+            body = render(self.server.project).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
         if not self._auth_ok():
             return self._json(401, {"error": "unauthorized"})
         parts = [p for p in self.path.split("/") if p]
