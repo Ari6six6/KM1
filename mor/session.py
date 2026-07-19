@@ -53,7 +53,8 @@ def next_speaker(speaker: str, text: str, names: list, lead: str) -> str:
 
 
 class Session:
-    def __init__(self, project=None, *, echo: bool = True, client=None):
+    def __init__(self, project=None, *, echo: bool = True, client=None,
+                 transcript_path=None, on_turn=None):
         self.project = project or load_project()
         self.crew = load_crew(self.project)
         self.names = [a.name for a in self.crew]
@@ -69,7 +70,12 @@ class Session:
         self.shell_net = cfg.get("shell_net", "none")
         self.web_open = web_open()
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        self.transcript = Transcript(self.project.session_path(stamp), echo=echo)
+        # The Hall — the one shared channel. An order points it at its own dir so
+        # the transcript IS the order's record; on_turn observes each turn's
+        # assembled context (the Ledger/daemon and the context-assembly audit).
+        self.transcript = Transcript(transcript_path or self.project.session_path(stamp),
+                                     echo=echo)
+        self.on_turn = on_turn
         self.tainted: list = []
 
     # -- one task --------------------------------------------------------
@@ -105,6 +111,12 @@ class Session:
         user = self._task(name, heard_from, heard, opening=opening, close=close)
         seed = self._seed(name, opening=opening, close=close)
         steps = 12 if (agent.can_egress or "run_shell" in agent.tools) else 8
+
+        # A face is assembled from its own system prompt and the shared Hall only —
+        # never another face's private context. on_turn surfaces exactly that for
+        # the daemon to stream and for the context-assembly audit to enforce.
+        if self.on_turn:
+            self.on_turn({"name": name, "system": system, "user": user})
 
         # On a live TTY, stream the model's tokens as they land — the operator
         # watches a mind think, not a spinner. Ctrl-C sets a cancel token that

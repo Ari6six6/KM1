@@ -155,6 +155,29 @@ plain data, not fixed roles.
 
 ---
 
+## Work orders
+
+A chat round *talks*; a **work order** *delivers*. An order is a durable,
+resumable unit of work that the crew executes through the shared transcript and
+finishes with an **artifact** — a file you can read, run, or `scp`:
+
+```sh
+mor order research "the 3 best-maintained python http libraries, with sources"
+mor orders                       # every order, its state, its brief
+mor pull <order-id>              # print the artifact path(s), scp-ready
+```
+
+Each order lives under `orders/<id>/` as an **append-only event log**
+(`received → planned → executing → verifying → delivered | failed`); its state is
+a *projection* of those events, so a restart resumes it exactly. The delivered
+`report.md` carries the crew's conclusion and the Hall that produced it. With no
+model attached the flow still runs and delivers, labelled **DEMO**.
+
+> The order is the unit of work; the shared transcript is the unit of being — the
+> crew's words are the narration, the artifact is the product.
+
+---
+
 ## The tools, and the rails
 
 Each agent gets only the tools its definition lists. Every tool returns a plain
@@ -192,6 +215,9 @@ Run `mor` with no arguments for the shell; inside it:
 
 ```
 <text>            give the crew a task
+/order <kind> <brief>   run a work order (kind: research) → an artifact
+/orders           list orders, their state, and their artifacts
+/pull <id>        print an order's artifact paths (scp-ready)
 /agents           list the crew and who can reach the web
 /allow <domain>   open web access for a domain  (/allow with no arg shows the list)
 /deny <domain>    close a domain again
@@ -209,6 +235,8 @@ From the shell (scriptable):
 
 ```sh
 mor run "audit the workspace for secrets and report"   # one task, then exit
+mor order research "compare 3 http libraries, sources"  # a work order → an artifact
+mor pull <order-id>                                     # the artifact path, scp-ready
 mor -C ~/code/my-repo run "find the failing test"      # work on a real directory
 mor config --base-url URL --model M --shell container   # configure
 mor ping                                                # test the endpoint

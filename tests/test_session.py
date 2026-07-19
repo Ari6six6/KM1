@@ -59,6 +59,30 @@ def test_scripted_session_delegates_and_closes(project):
     assert last["speaker"] == "lead" and last["addressee"] == "operator"
 
 
+def test_no_face_reads_another_faces_private_context(project):
+    """R0 acceptance — the context-assembly audit. A face is built from its own
+    system prompt and the shared Hall only; what a teammate read privately (a tool
+    observation) never enters anyone's context. Only the Hall line it spoke crosses."""
+    secret = "SECRETMARKER-9f3x"
+    project.workspace.mkdir(parents=True, exist_ok=True)
+    (project.workspace / "secret.txt").write_text(f"{secret} the north road is clear")
+    script = ScriptClient([
+        {"text": "researcher, read secret.txt and give a one-line summary. "},
+        {"tool": "read_file", "args": {"path": "secret.txt"}},   # private observation
+        {"text": "I read it; summary: the road is open. lead, over to you."},
+        {"text": "operator, the road is open."},
+    ])
+    seen = []
+    s = Session(project, echo=False, client=script, on_turn=seen.append)
+    s.run_task("scout the north road")
+
+    assert seen, "no turns were captured"
+    # the secret the researcher read privately never entered any face's context
+    assert all(secret not in t["user"] and secret not in t["system"] for t in seen)
+    # but the line the researcher *spoke* in the Hall did reach the lead
+    assert any("the road is open" in t["user"] for t in seen)
+
+
 def test_taint_flag_is_raised_when_outside_data_is_used(project):
     project.allow("example.com")
     s = Session(project, echo=False)

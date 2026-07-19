@@ -27,6 +27,9 @@ BANNER = f"""{ui.bold(ui.cyan('  MoRE'))} {ui.dim('— a small multi-agent harne
 
 HELP = f"""{ui.bold('Commands')}
   {ui.cyan('<text>')}            give the crew a task
+  {ui.cyan('/order')} <kind> <brief>   run a work order (kind: research) → an artifact
+  {ui.cyan('/orders')}           list orders, their state, and their artifacts
+  {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
   {ui.cyan('/agents')}           list the crew and who can reach the web
   {ui.dim('(the web is open by default — the crew can browse any public site freely)')}
   {ui.cyan('/allow')} <domain>   (only if you ran `config --web gated`) allowlist a domain
@@ -170,6 +173,70 @@ def _cmd_note(project, rest: str) -> None:
     print(ui.dim("  noted."))
 
 
+_ORDER_KINDS = ("research",)
+
+
+def _cmd_order(project, rest: str) -> int:
+    """`order <kind> <brief>` — run a work order end to end and deliver an artifact.
+    If the first word isn't a known kind, the whole line is taken as a research
+    brief (research is the default and only kind in R0)."""
+    from mor.order import run_order
+    rest = rest.strip()
+    if not rest:
+        print(ui.yellow("usage: /order <kind> <brief>   e.g. order research \"top 3 "
+                        "python http libraries, with sources\""))
+        return 2
+    head, _, tail = rest.partition(" ")
+    if head.lower() in _ORDER_KINDS and tail.strip():
+        kind, brief = head.lower(), tail.strip()
+    else:
+        kind, brief = "research", rest
+    print(ui.dim(f"  order ({kind}): {brief}"))
+    order = run_order(project, kind, brief)
+    arts = order.artifacts()
+    if order.state == "delivered" and arts:
+        print(ui.green(f"  ✓ delivered · order {order.id}"))
+        for p in arts:
+            print(ui.dim(f"    {p}"))
+    else:
+        reason = next((e.get("reason", "") for e in reversed(order.events)
+                       if e["kind"] == "failed"), "")
+        print(ui.yellow(f"  ✗ {order.state} · order {order.id}  {reason}"))
+    return 0
+
+
+def _cmd_orders(project) -> None:
+    from mor.order import OrderStore
+    orders = OrderStore(project).list()
+    if not orders:
+        print(ui.dim("  no orders yet — run one with /order research \"…\""))
+        return
+    for o in orders:
+        mark = ui.green(o.state) if o.state == "delivered" else (
+            ui.yellow(o.state) if o.state == "failed" else ui.dim(o.state))
+        brief = (o.brief[:56] + "…") if len(o.brief) > 57 else o.brief
+        print(f"  {ui.cyan(o.id)}  {mark}  {ui.dim(o.kind)}  {brief}")
+
+
+def _cmd_pull(project, rest: str) -> int:
+    from mor.order import OrderStore
+    oid = rest.split()[0] if rest.strip() else ""
+    if not oid:
+        print(ui.yellow("usage: /pull <order-id>   (see /orders for ids)"))
+        return 2
+    order = OrderStore(project).load(oid)
+    if order is None:
+        print(ui.yellow(f"  no such order: {oid}"))
+        return 1
+    arts = order.artifacts()
+    if not arts:
+        print(ui.dim(f"  order {oid} is {order.state} — no artifact yet."))
+        return 1
+    for p in arts:
+        print(str(p))
+    return 0
+
+
 def _config_from_args(argv: list) -> int:
     """`mor config [--base-url U] [--model M] [--api-key K] [--allow-shell|--no-shell]`"""
     if not argv:
@@ -222,6 +289,12 @@ def _dispatch(session: Session, raw: str) -> bool:
         return False
     elif cmd in ("help", "h", "?"):
         print(HELP)
+    elif cmd == "order":
+        _cmd_order(project, rest)
+    elif cmd == "orders":
+        _cmd_orders(project)
+    elif cmd == "pull":
+        _cmd_pull(project, rest)
     elif cmd == "agents":
         _cmd_agents(project)
     elif cmd == "allow":
@@ -319,6 +392,13 @@ def main(argv=None) -> int:
             return 2
         Session(load_project()).run_task(task)
         return 0
+    if argv and argv[0] == "order":
+        return _cmd_order(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] == "orders":
+        _cmd_orders(load_project())
+        return 0
+    if argv and argv[0] == "pull":
+        return _cmd_pull(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] == "allow":
         _cmd_allow(load_project(), " ".join(argv[1:]).strip())
         return 0
