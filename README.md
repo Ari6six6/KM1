@@ -163,9 +163,15 @@ finishes with an **artifact** — a file you can read, run, or `scp`:
 
 ```sh
 mor order research "the 3 best-maintained python http libraries, with sources"
+mor order build    "a script that dedupes a csv by column, with a test"
+mor order fetch    "every PDF linked from <page>"
 mor orders                       # every order, its state, its brief
 mor pull <order-id>              # print the artifact path(s), scp-ready
 ```
+
+Three kinds — **research** (a sourced answer), **build** (code + a test in the
+workspace), **fetch** (pull and save from the web) — differ only in how the work
+is framed and which face leads; the order object is the same.
 
 Each order lives under `orders/<id>/` as an **append-only event log**
 (`received → planned → executing → verifying → delivered | failed`); its state is

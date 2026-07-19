@@ -13,10 +13,11 @@ where the order stood. Nothing is a live variable that a crash can lose.
 
     received → planned → executing → verifying → delivered | failed
 
-R0 implements one kind — ``research`` — which runs the crew on the brief and
-writes ``report.md``: the crew's conclusion plus the Hall that produced it. Offline
-(no model) it still delivers, labelled DEMO, so the whole flow moves on a fresh
-clone. Later kinds (build, fetch, watch) are more of the same object.
+Three kinds so far — ``research`` (a sourced answer), ``build`` (code + a test in
+the workspace), ``fetch`` (pull and save from the web) — differ only in how the
+work is framed and which face leads; the order object is the same. Each writes
+``report.md``: the crew's conclusion plus the Hall that produced it. Offline (no
+model) it still delivers, labelled DEMO, so the whole flow moves on a fresh clone.
 """
 
 from __future__ import annotations
@@ -29,6 +30,25 @@ from datetime import datetime
 from pathlib import Path
 
 _LIFECYCLE = ("received", "planned", "executing", "verifying", "delivered", "failed")
+
+KINDS = ("research", "build", "fetch")
+
+_KIND_TASKS = {
+    "research": "Research this and deliver a clear, well-sourced answer: {brief}",
+    "build": ("Build this in the shared workspace: {brief}. Write the code and a "
+              "test for it; if a shell is enabled, run the test and report whether "
+              "it passed. The deliverable is the working files plus a short report "
+              "of what you built and how you verified it."),
+    "fetch": ("Fetch this from the public web and save what you retrieve into the "
+              "workspace: {brief}. Report each source you touched (web data is "
+              "TAINTED until it has been checked) and the path you saved it to."),
+}
+
+
+def _task_for(kind: str, brief: str) -> str:
+    body = _KIND_TASKS.get(kind, _KIND_TASKS["research"]).format(brief=brief)
+    return (body + "\n\nWork it as a crew and finish with a clear, plain-English "
+            "result for the operator — that becomes the delivered report.")
 
 
 def _new_id(kind: str) -> str:
@@ -164,10 +184,7 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
         order.record("executing")
         session = Session(project, echo=echo, client=client,
                           transcript_path=order.hall_path, on_turn=on_turn)
-        task = (f"This is a {order.kind} order. {order.brief}\n\n"
-                "Work it as a crew and finish with a clear, plain-English result "
-                "for the operator — that becomes the delivered report.")
-        session.run_task(task)
+        session.run_task(_task_for(order.kind, order.brief))
         entries = session.transcript.entries()
 
         order.record("verifying")

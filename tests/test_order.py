@@ -3,7 +3,7 @@ with state that is a projection of an event log (so a restart resumes it)."""
 
 from __future__ import annotations
 
-from mor.order import OrderStore, run_order
+from mor.order import OrderStore, run_order, _task_for
 from mor.llm import Client, ChatResult
 from mor.llm import ScriptClient
 
@@ -57,6 +57,22 @@ def test_scripted_order_executes_through_the_hall(project):
     body = order.artifacts()[0].read_text()
     assert "route north" in body      # the crew's conclusion is in the artifact
     assert "How the crew worked (the Hall)" in body
+
+
+def test_order_kinds_frame_distinct_tasks():
+    build = _task_for("build", "a csv deduper")
+    fetch = _task_for("fetch", "the PDFs on that page")
+    research = _task_for("research", "http libraries")
+    assert "test" in build and "csv deduper" in build
+    assert "web" in fetch and "TAINTED" in fetch
+    assert "sourced" not in build and "test" not in research
+
+
+def test_build_and_fetch_orders_deliver(project):
+    for kind in ("build", "fetch"):
+        order = run_order(project, kind, f"a {kind} job", echo=False)
+        assert order.state == "delivered"
+        assert order.artifacts()[0].read_text().startswith(f"# {kind.title()}:")
 
 
 def test_a_failing_turn_fails_the_order_not_the_process(project):

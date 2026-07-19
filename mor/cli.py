@@ -27,7 +27,7 @@ BANNER = f"""{ui.bold(ui.cyan('  MoRE'))} {ui.dim('— a small multi-agent harne
 
 HELP = f"""{ui.bold('Commands')}
   {ui.cyan('<text>')}            give the crew a task
-  {ui.cyan('/order')} <kind> <brief>   run a work order (kind: research) → an artifact
+  {ui.cyan('/order')} <kind> <brief>   run a work order (research · build · fetch) → an artifact
   {ui.cyan('/orders')}           list orders, their state, and their artifacts
   {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
@@ -176,13 +176,11 @@ def _cmd_note(project, rest: str) -> None:
     print(ui.dim("  noted."))
 
 
-_ORDER_KINDS = ("research",)
-
-
 def _cmd_order(project, rest: str) -> int:
     """`order <kind> <brief>` — run a work order end to end and deliver an artifact.
-    If the first word isn't a known kind, the whole line is taken as a research
-    brief (research is the default and only kind in R0)."""
+    If the first word isn't a known kind (research · build · fetch), the whole line
+    is taken as a research brief."""
+    from mor.order import KINDS as _ORDER_KINDS
     from mor.order import run_order
     rest = rest.strip()
     if not rest:
