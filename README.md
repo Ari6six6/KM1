@@ -262,6 +262,25 @@ It reads only the realm's own memory (reports, notes), never arbitrary workspace
 files, so nothing private leaks in through the back door. Embeddings and
 model-assisted extraction are a later layer; the retrieval seam is here now.
 
+### light and dark — the day
+
+Retrieval carries *facts*; the day's ritual carries *identity*.
+
+```sh
+mor light        # open a day — the Chant that crossed the night is posted first
+# … work …
+mor dark         # close it — fold the day's Hall into the Chant and the walls
+```
+
+At **dark**, the day's shared transcript is folded into one small thing that
+crosses the night — the **Chant** (the realm's memory of who it was that day) — and
+each face rewrites its two **walls** (inside: who I am; outside: what it makes of
+the others, an earned relation). At **light** the Chant is posted and each face
+wakes to *persona + walls + last Chant* — a blank slate but for what the ritual
+kept. It's all a **deterministic projection of the recorded Hall**: the same day
+always folds to the same Chant and walls, byte for byte. A served model may later
+*voice* the Chant richer; the ground is always the projection, never invention.
+
 ---
 
 ## The tools, and the rails

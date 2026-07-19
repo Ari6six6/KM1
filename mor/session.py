@@ -103,6 +103,18 @@ class Session:
                opening: bool, close: bool = False) -> str:
         agent = self.by_name[name]
         system = build_system(agent, self.crew, self.lead, self.project.notes())
+        # The ritual layer: a face wakes to persona + its walls + last night's Chant
+        # — the realm's memory of who it was, carried across the dark (day.py).
+        from mor.day import last_chant, walls_for
+        chant, walls = last_chant(self.project), walls_for(self.project, name)
+        bits = []
+        if chant:
+            bits.append("LAST NIGHT'S CHANT (the realm's memory of who it was):\n" + chant)
+        if walls:
+            bits.append(f"YOUR WALLS — who you are: {walls.get('inside', '')} · what you "
+                        f"make of the others: {walls.get('outside', '')}")
+        if bits:
+            system = system + "\n\n" + "\n\n".join(bits)
         ctx = ToolContext(workspace=self.project.workspace, project=self.project,
                           can_egress=agent.can_egress, web_open=self.web_open,
                           shell_mode=self.shell_mode, shell_net=self.shell_net,

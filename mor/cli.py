@@ -32,6 +32,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
   {ui.cyan('/watch')} <brief> <every>   a recurring order (e.g. 6h) · {ui.cyan('/watches')} · {ui.cyan('/unwatch')} <id>
   {ui.cyan('/recall')} <query>     what the realm remembers from its past work
+  {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (write the Chant + the walls)
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
   {ui.cyan('/field')}            the box, its state, and cost so far
@@ -260,6 +261,33 @@ def _cmd_status() -> int:
     return 0
 
 
+def _cmd_light(project) -> int:
+    """light — open a day; the Chant that crossed the night is posted first."""
+    from mor.day import open_day
+    chant = open_day(project)
+    print(ui.bold(ui.yellow("  ☀ light")) + ui.dim(" — a new day opens"))
+    if chant:
+        print(ui.dim("  the chant that crossed the night:"))
+        for line in chant.splitlines():
+            print(ui.dim("    " + line))
+    else:
+        print(ui.dim("  (no chant yet — the first day has no yesterday.)"))
+    return 0
+
+
+def _cmd_dark(project) -> int:
+    """dark — close the day; fold its Hall into the Chant and the walls."""
+    from mor.agent import load_crew
+    from mor.day import close_day, todays_hall
+    names = [a.name for a in load_crew(project)]
+    chant = close_day(project, todays_hall(project), names)
+    print(ui.bold(ui.blue("  ☾ dark")) + ui.dim(" — the day closes; the realm sleeps"))
+    print(ui.dim("  the chant, kept for the dawn:"))
+    for line in chant.splitlines():
+        print(ui.dim("    " + line))
+    return 0
+
+
 def _cmd_recall(project, rest: str) -> int:
     """`recall <query>` — what the realm remembers, from its own past work."""
     from mor.memory import recall
@@ -462,6 +490,10 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_unwatch(project, rest)
     elif cmd == "recall":
         _cmd_recall(project, rest)
+    elif cmd in ("light", "1"):
+        _cmd_light(project)
+    elif cmd in ("dark", "0"):
+        _cmd_dark(project)
     elif cmd == "status":
         _cmd_status()
     elif cmd == "up":
@@ -583,6 +615,8 @@ def main(argv=None) -> int:
         return _cmd_unwatch(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] == "recall":
         return _cmd_recall(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] in ("light", "dark"):
+        return (_cmd_light if argv[0] == "light" else _cmd_dark)(load_project())
     if argv and argv[0] in ("daemon", "mored"):
         return _cmd_daemon(argv[1:])
     if argv and argv[0] == "status":
