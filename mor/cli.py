@@ -30,6 +30,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/order')} <kind> <brief>   run a work order (kind: research) → an artifact
   {ui.cyan('/orders')}           list orders, their state, and their artifacts
   {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
+  {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/agents')}           list the crew and who can reach the web
   {ui.dim('(the web is open by default — the crew can browse any public site freely)')}
   {ui.cyan('/allow')} <domain>   (only if you ran `config --web gated`) allowlist a domain
@@ -218,6 +219,44 @@ def _cmd_orders(project) -> None:
         print(f"  {ui.cyan(o.id)}  {mark}  {ui.dim(o.kind)}  {brief}")
 
 
+def _daemon_url() -> str:
+    import os
+    from mor.daemon import DEFAULT_HOST, DEFAULT_PORT
+    return os.environ.get("MOR_DAEMON_URL", f"http://{DEFAULT_HOST}:{DEFAULT_PORT}")
+
+
+def _cmd_daemon(argv: list) -> int:
+    """`mor daemon [--host H] [--port N]` — run the headless daemon in the
+    foreground. For the night shift: `nohup mor daemon &` (or a container)."""
+    from mor.daemon import serve, DEFAULT_HOST, DEFAULT_PORT
+    host, port, i = DEFAULT_HOST, DEFAULT_PORT, 0
+    while i < len(argv):
+        if argv[i] == "--port" and i + 1 < len(argv):
+            port = int(argv[i + 1]); i += 2
+        elif argv[i] == "--host" and i + 1 < len(argv):
+            host = argv[i + 1]; i += 2
+        else:
+            i += 1
+    serve(host=host, port=port)
+    return 0
+
+
+def _cmd_status() -> int:
+    """Is a daemon alive, and what's it holding?"""
+    from mor.config import daemon_token
+    from mor.daemon import DaemonClient
+    url = _daemon_url()
+    try:
+        h = DaemonClient(url, daemon_token(), timeout=5).health()
+    except Exception:  # noqa: BLE001 — unreachable daemon is a normal state, not an error
+        print(ui.dim(f"  no daemon at {url} — start one with `mor daemon` "
+                     "(headless: `nohup mor daemon &`)"))
+        return 1
+    print(ui.green(f"  ● mored up · {url}"))
+    print(ui.dim(f"  project {h.get('project')} · {h.get('orders')} orders on disk"))
+    return 0
+
+
 def _cmd_pull(project, rest: str) -> int:
     from mor.order import OrderStore
     oid = rest.split()[0] if rest.strip() else ""
@@ -295,6 +334,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_orders(project)
     elif cmd == "pull":
         _cmd_pull(project, rest)
+    elif cmd == "status":
+        _cmd_status()
     elif cmd == "agents":
         _cmd_agents(project)
     elif cmd == "allow":
@@ -399,6 +440,10 @@ def main(argv=None) -> int:
         return 0
     if argv and argv[0] == "pull":
         return _cmd_pull(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] in ("daemon", "mored"):
+        return _cmd_daemon(argv[1:])
+    if argv and argv[0] == "status":
+        return _cmd_status()
     if argv and argv[0] == "allow":
         _cmd_allow(load_project(), " ".join(argv[1:]).strip())
         return 0

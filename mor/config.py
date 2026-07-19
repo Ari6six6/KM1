@@ -84,6 +84,25 @@ def set_config(**kwargs) -> dict:
     return cfg
 
 
+def daemon_token() -> str:
+    """The shared secret between the daemon and its clients — generated once and
+    kept at ``$MOR_HOME/daemon_token`` (0600). The local API is loopback-only, but
+    a token means another user on the box can't drive your realm."""
+    p = mor_home() / "daemon_token"
+    if p.exists():
+        tok = p.read_text().strip()
+        if tok:
+            return tok
+    tok = os.urandom(16).hex()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(tok + "\n")
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
+    return tok
+
+
 def web_open() -> bool:
     """True (the default) means the crew may fetch any public web page without the
     operator allowing each domain. Set ``web = "gated"`` in config (or MOR_WEB) to

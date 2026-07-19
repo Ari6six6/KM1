@@ -176,6 +176,25 @@ model attached the flow still runs and delivers, labelled **DEMO**.
 > The order is the unit of work; the shared transcript is the unit of being — the
 > crew's words are the narration, the artifact is the product.
 
+### Headless — the daemon
+
+A REPL is a session; a daemon is a presence. `mored` owns the realm and runs
+orders **in its own process**, so the work continues whether or not you're
+watching — and because an order's state is a projection of its event log, a
+daemon that is killed and restarted resumes every order exactly.
+
+```sh
+mor daemon                 # run the daemon in the foreground
+nohup mor daemon &         # …or headless, for the night shift
+mor status                 # is it up? what's it holding?
+```
+
+It speaks a small, token-authed, loopback HTTP+SSE API (stdlib only): submit an
+order, list orders, fetch one, or stream an order's Hall live as the crew works.
+The token lives at `$MOR_HOME/daemon_token`. This is the first stone of the
+headless life — the self-healing tunnel, the provider lifecycle, and multi-client
+replay attach to this shape.
+
 ---
 
 ## The tools, and the rails

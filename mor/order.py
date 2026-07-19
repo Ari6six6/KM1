@@ -152,22 +152,19 @@ def _render_report(order: Order, entries: list, mode: str) -> str:
     return "\n".join(lines)
 
 
-def run_order(project, kind: str, brief: str, *, client=None, echo: bool = True,
-              store: "OrderStore | None" = None, on_turn=None) -> Order:
-    """Execute one order end to end, through the Hall, leaving an artifact.
-
-    Returns the delivered (or failed) Order. Every transition is an event, so the
-    order's whole life is on disk the instant it happens."""
+def execute_order(project, order: Order, *, client=None, echo: bool = True,
+                  on_turn=None) -> Order:
+    """Run an already-created order through the Hall, leaving an artifact. Every
+    transition is an event, so the order's whole life is on disk the instant it
+    happens — a crash mid-order leaves it recoverably at its last state."""
     from mor.session import Session   # local import: session imports config only
 
-    store = store or OrderStore(project)
-    order = store.create(kind, brief)
     try:
-        order.record("planned", plan=f"run the crew on the brief and deliver {kind}")
+        order.record("planned", plan=f"run the crew on the brief and deliver {order.kind}")
         order.record("executing")
         session = Session(project, echo=echo, client=client,
                           transcript_path=order.hall_path, on_turn=on_turn)
-        task = (f"This is a {kind} order. {brief}\n\n"
+        task = (f"This is a {order.kind} order. {order.brief}\n\n"
                 "Work it as a crew and finish with a clear, plain-English result "
                 "for the operator — that becomes the delivered report.")
         session.run_task(task)
@@ -183,3 +180,12 @@ def run_order(project, kind: str, brief: str, *, client=None, echo: bool = True,
     except Exception as e:  # noqa: BLE001 — a bad turn fails the order, never the daemon
         order.record("failed", reason=f"{type(e).__name__}: {str(e)[:200]}")
     return order
+
+
+def run_order(project, kind: str, brief: str, *, client=None, echo: bool = True,
+              store: "OrderStore | None" = None, on_turn=None) -> Order:
+    """Create an order and execute it end to end. Returns the delivered (or failed)
+    Order."""
+    store = store or OrderStore(project)
+    order = store.create(kind, brief)
+    return execute_order(project, order, client=client, echo=echo, on_turn=on_turn)
