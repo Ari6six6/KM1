@@ -268,12 +268,43 @@ def handle(rest: str, out=print) -> None:
         set_config(base_url="")
         out(ui.dim("  tunnel down — offline. (server left running; `mor gpu down` stops it.)"))
 
+    elif sub == "watch":  # keep the tunnel alive automatically (self-healing)
+        cargs = state.get("ssh_conn")
+        lp, rp = state.get("local_port"), state.get("remote_port")
+        if not cargs or not lp or not rp:
+            out(ui.yellow("  nothing to watch — run `mor gpu ssh <ssh… -L "
+                          "port:host:port>` first."))
+            return
+        from mor.tunnel import TunnelSupervisor
+
+        def _is_alive():
+            return _alive(_load().get("tunnel_pid"))
+
+        def _redial():
+            s = _load()
+            _kill_tunnel(s)
+            pid = _open_tunnel(list(cargs) + ["-L", f"{lp}:localhost:{rp}"], out)
+            if pid is None:
+                return False
+            s["tunnel_pid"] = pid
+            _save(s)
+            return True
+
+        sup = TunnelSupervisor(_is_alive, _redial,
+                               on_event=lambda m: out(ui.dim("  " + m)))
+        out(ui.green("  watching the tunnel — it self-heals with backoff. Ctrl-C to stop."))
+        out(ui.dim("  (headless: `nohup mor gpu watch &`)"))
+        try:
+            sup.run()
+        except KeyboardInterrupt:
+            out(ui.dim("\n  stopped watching (the tunnel stays as it is)."))
+
     else:  # status
         if state.get("served"):
             if _alive(state.get("tunnel_pid")):
                 live = ui.green("tunnel live")
             else:
-                live = ui.yellow("tunnel down — `mor gpu reconnect`")
+                live = ui.yellow("tunnel down — `mor gpu reconnect` or `mor gpu watch`")
             out(ui.dim(f"  served: {state.get('base_url')} (model: {state.get('model')}) — ") + live)
         else:
             out(ui.dim("  no GPU attached. `mor gpu ssh <ssh… -L port:host:port>` to serve a model."))

@@ -91,9 +91,14 @@ Manage it:
 ```sh
 mor gpu model           # list the catalog · mor gpu model <key> to pick
 mor gpu status          # is the tunnel live? what's served?
+mor gpu watch           # keep the tunnel alive automatically (self-healing, backoff)
 mor gpu off             # drop the tunnel (leaves the server running on the box)
 mor gpu down            # stop the server AND drop the tunnel
 ```
+
+For an unattended box, `mor gpu watch` (or `nohup mor gpu watch &`) re-dials the
+tunnel by itself the moment it drops — no more noticing it's down and typing
+`reconnect`.
 
 The model catalog lives in `mor/models.py` — edit it to add your own (repo,
 served name, VRAM floor, context tiers, vLLM vs llama.cpp). The bundled rows are a

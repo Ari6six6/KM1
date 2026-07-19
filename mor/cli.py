@@ -42,6 +42,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/model')}            show how MoRE reaches the model
   {ui.cyan('/gpu')} ssh <ssh…>   provision + serve a model on a GPU box, in one command
   {ui.cyan('/gpu')} reconnect    reopen a dropped tunnel to the same box
+  {ui.cyan('/gpu')} watch        keep the tunnel alive automatically (self-healing)
   {ui.cyan('/gpu')} model/status/off/down   pick a model · check · drop tunnel · stop box
   {ui.cyan('/ping')}             check that the model endpoint actually answers
   {ui.cyan('/project')} [name]   show, switch, or create the current project
