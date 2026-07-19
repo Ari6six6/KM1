@@ -178,6 +178,18 @@ Three kinds — **research** (a sourced answer), **build** (code + a test in the
 workspace), **fetch** (pull and save from the web) — differ only in how the work
 is framed and which face leads; the order object is the same.
 
+A **watch** is a recurring order — standing work the daemon runs on a schedule,
+whether or not you're looking:
+
+```sh
+mor watch "that repo's issues, tell me what changed" 6h
+mor watches                      # every watch, its interval, when it last ran
+mor unwatch <id>
+```
+
+The daemon's scheduler fires each watch when it's due, with no client attached —
+the realm working the night shift.
+
 Each order lives under `orders/<id>/` as an **append-only event log**
 (`received → planned → executing → verifying → delivered | failed`); its state is
 a *projection* of those events, so a restart resumes it exactly. The delivered

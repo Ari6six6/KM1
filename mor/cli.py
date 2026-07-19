@@ -30,6 +30,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/order')} <kind> <brief>   run a work order (research · build · fetch) → an artifact
   {ui.cyan('/orders')}           list orders, their state, and their artifacts
   {ui.cyan('/pull')} <id>        print an order's artifact paths (scp-ready)
+  {ui.cyan('/watch')} <brief> <every>   a recurring order (e.g. 6h) · {ui.cyan('/watches')} · {ui.cyan('/unwatch')} <id>
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
   {ui.cyan('/field')}            the box, its state, and cost so far
@@ -258,6 +259,60 @@ def _cmd_status() -> int:
     return 0
 
 
+def _cmd_watch(project, rest: str) -> int:
+    """`watch [kind] <brief> <every>` — a recurring order the daemon runs on a
+    schedule. The last token is the interval (90s · 30m · 6h · 1d); an optional
+    first token is the kind (research · build · fetch)."""
+    from mor.order import KINDS
+    from mor.watch import WatchStore, parse_interval
+    toks = rest.split()
+    if len(toks) < 2:
+        print(ui.yellow("usage: /watch [kind] <brief> <every>   e.g. watch "
+                        "\"that repo's issues, what changed\" 6h"))
+        return 2
+    try:
+        every = parse_interval(toks[-1])
+    except ValueError as e:
+        print(ui.yellow(f"  {e}"))
+        return 2
+    body = toks[:-1]
+    if body and body[0].lower() in KINDS:
+        kind, brief = body[0].lower(), " ".join(body[1:])
+    else:
+        kind, brief = "research", " ".join(body)
+    if not brief:
+        print(ui.yellow("  a watch needs a brief."))
+        return 2
+    w = WatchStore(project).add(kind, brief, every)
+    print(ui.green(f"  watching every {toks[-1]} · {w.id}"))
+    print(ui.dim("  the daemon fires it on schedule — start one with `mor daemon`."))
+    return 0
+
+
+def _cmd_watches(project) -> None:
+    import time
+    from mor.watch import WatchStore
+    watches = WatchStore(project).list()
+    if not watches:
+        print(ui.dim("  no watches — set one with /watch <brief> <every>"))
+        return
+    for w in watches:
+        last = "never" if not w.last_run else time.strftime("%H:%M:%S", time.localtime(w.last_run))
+        brief = (w.brief[:48] + "…") if len(w.brief) > 49 else w.brief
+        print(f"  {ui.cyan(w.id)}  every {w.every}s  {ui.dim(w.kind)}  last {last}  {brief}")
+
+
+def _cmd_unwatch(project, rest: str) -> int:
+    from mor.watch import WatchStore
+    wid = rest.split()[0] if rest.strip() else ""
+    if not wid:
+        print(ui.yellow("usage: /unwatch <id>   (see /watches)"))
+        return 2
+    print(ui.dim("  removed.") if WatchStore(project).remove(wid)
+          else ui.yellow(f"  no such watch: {wid}"))
+    return 0
+
+
 def _cmd_up(project) -> int:
     """Acquire and serve a box (the Field). Reconciles first, so a rent a crash
     left half-done is healed to exactly one box rather than doubled."""
@@ -381,6 +436,12 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_orders(project)
     elif cmd == "pull":
         _cmd_pull(project, rest)
+    elif cmd == "watch":
+        _cmd_watch(project, rest)
+    elif cmd == "watches":
+        _cmd_watches(project)
+    elif cmd == "unwatch":
+        _cmd_unwatch(project, rest)
     elif cmd == "status":
         _cmd_status()
     elif cmd == "up":
@@ -493,6 +554,13 @@ def main(argv=None) -> int:
         return 0
     if argv and argv[0] == "pull":
         return _cmd_pull(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] == "watch":
+        return _cmd_watch(load_project(), " ".join(argv[1:]).strip())
+    if argv and argv[0] == "watches":
+        _cmd_watches(load_project())
+        return 0
+    if argv and argv[0] == "unwatch":
+        return _cmd_unwatch(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] in ("daemon", "mored"):
         return _cmd_daemon(argv[1:])
     if argv and argv[0] == "status":

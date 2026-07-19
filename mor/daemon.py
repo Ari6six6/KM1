@@ -179,6 +179,7 @@ def serve(project=None, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> N
     """Run the daemon in the foreground until interrupted (headless: nohup / &)."""
     from mor import ui
     from mor.config import current_project_name
+    from mor.watch import WatchScheduler
     httpd = make_server(project, host, port)
     url = f"http://{host}:{port}"
     print(ui.green(f"  mored up · {url} · project {current_project_name()}"))
@@ -186,11 +187,15 @@ def serve(project=None, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> N
     if httpd.resumed:
         print(ui.yellow(f"  resumed {len(httpd.resumed)} order(s) a prior instance "
                         "left mid-flight"))
+    # the night shift: fire recurring orders on schedule, no client attached
+    scheduler = WatchScheduler(httpd.project, on_event=lambda m: print(ui.dim("  " + m)))
+    scheduler.start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print(ui.dim("\n  mored down."))
     finally:
+        scheduler.stop()
         httpd.server_close()
 
 
