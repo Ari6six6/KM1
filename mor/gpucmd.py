@@ -158,6 +158,23 @@ def handle(rest: str, out=print) -> None:
             + ui.dim(f"  ({', '.join(n for n, _ in gpus)})"))
         out(ui.dim(f"  serving {spec.label} · context {max_len} · port {rport}"))
 
+        # 2.5 preflight: prove the box can serve before spending the hour (R2.2).
+        # Capability and disk are instant; resolution is a ~3s HF check — all before
+        # any install, so the two most expensive failures fail in seconds, not at
+        # minute 30 of a paid rental.
+        from mor import preflight
+        cc = preflight.detect_compute_cap(cargs)
+        free = preflight.remote_free_bytes(cargs)
+        for ok, msg, suggestions in (preflight.capability_preflight(spec, cc),
+                                     preflight.disk_preflight(spec, free),
+                                     preflight.model_preflight(spec)):
+            if not ok:
+                out(ui.red("  ✗ preflight: ") + ui.dim(msg))
+                for s in suggestions:
+                    out(ui.dim("      near match: " + s))
+                return
+            out(ui.dim("  ✓ " + msg))
+
         # 3. install runtime + launch server (slides off a squatted box port)
         try:
             new_rport = gpumod.launch(cargs, spec, tp, max_len, util, rport, out,
@@ -185,8 +202,16 @@ def handle(rest: str, out=print) -> None:
         # point the whole harness at it
         set_config(base_url=base_url, model=spec.served_name)
         if ready:
-            out(ui.green(f"  ⛓  the model is up at {base_url}")
-                + ui.dim(f"  (model: {spec.served_name}). Try `mor ping`, then `mor`."))
+            # P1-1 the canary: "up" must mean the model can actually work a tool,
+            # not merely that /v1/models returns 200.
+            cok, cmsg, _ = preflight.canary(local_port, spec.served_name)
+            if cok:
+                out(ui.green(f"  ⛓  the model is up at {base_url}")
+                    + ui.dim(f"  (model: {spec.served_name}). Try `mor ping`, then `mor`."))
+            else:
+                out(ui.yellow("  the endpoint answers, but it can't think yet — ") + ui.dim(cmsg))
+                out(ui.dim("     tail ~/vllm.log on the box, or try a different "
+                           "`--tool-call-parser`; `mor gpu status` to re-check."))
         else:
             out(ui.yellow("  tunnel up and the server is launching, but it didn't "
                           "answer in time — weights may still be loading."))
