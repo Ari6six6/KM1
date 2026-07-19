@@ -33,6 +33,7 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/watch')} <brief> <every>   a recurring order (e.g. 6h) · {ui.cyan('/watches')} · {ui.cyan('/unwatch')} <id>
   {ui.cyan('/recall')} <query>     what the realm remembers from its past work
   {ui.cyan('/bench')} run|list|pin   the benchmark suite — the judge the Forge must satisfy
+  {ui.cyan('/forge')} once|log     one quarantined self-improvement, judged by the benchmark
   {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (write the Chant + the walls)
   {ui.cyan('/status')}           is a headless daemon alive? (start one: `mor daemon`)
   {ui.cyan('/up')}               rent + serve a box (the Field) · {ui.cyan('/down')} destroy it + bill
@@ -259,6 +260,47 @@ def _cmd_status() -> int:
         return 1
     print(ui.green(f"  ● mored up · {url}"))
     print(ui.dim(f"  project {h.get('project')} · {h.get('orders')} orders on disk"))
+    return 0
+
+
+def _cmd_forge(project, argv: list) -> int:
+    """`forge once|log` — the quarantined self-improvement cycle."""
+    from mor import forge
+    from mor.ledger import events
+    sub = argv[0] if argv else "once"
+    if sub == "log":
+        verdicts = events(project, "forge.verdict")
+        if not verdicts:
+            print(ui.dim("  the forge has not run yet."))
+            return 0
+        for e in verdicts[-20:]:
+            mark = ui.green("kept") if e.get("verdict") == "keep" else ui.dim(e.get("verdict", "?"))
+            print(f"  {e.get('ts', '')}  {mark}  Δ{e.get('delta', 0):+.2f}  "
+                  f"{ui.dim(e.get('reason', ''))}")
+        return 0
+    if sub not in ("once", "on", "off"):
+        print(ui.yellow("usage: /forge once | log"))
+        return 2
+    if sub in ("on", "off"):
+        print(ui.dim("  `forge on` schedules the cycle into the dusk window "
+                     "(set via `mor watch \"dark\" 1d`); `forge once` runs it now."))
+        if sub == "off":
+            return 0
+    print(ui.dim("  forging — one quarantined improvement, judged by the benchmark…"))
+    result = forge.forge_once(project=project)
+    v = result.get("verdict")
+    if v == "keep":
+        print(ui.green(f"  ✓ kept — {result['reason']} · "
+                       f"{result['baseline']} → {result['new']} (Δ{result['delta']:+.2f})"))
+    elif v in ("nothing",):
+        print(ui.dim(f"  nothing to improve — every task is already perfect "
+                     f"(score {result.get('baseline')})."))
+    elif v == "aborted":
+        print(ui.yellow(f"  aborted — {result['reason']}."))
+    else:
+        print(ui.yellow(f"  ✗ rejected — {result.get('reason')} · "
+                        f"{result.get('baseline')} → {result.get('new')} "
+                        f"(Δ{result.get('delta', 0):+.2f}); the realm stands unchanged."))
     return 0
 
 
@@ -553,6 +595,8 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_recall(project, rest)
     elif cmd == "bench":
         _cmd_bench(project, rest.split())
+    elif cmd == "forge":
+        _cmd_forge(project, rest.split())
     elif cmd in ("light", "1"):
         _cmd_light(project)
     elif cmd in ("dark", "0"):
@@ -680,6 +724,8 @@ def main(argv=None) -> int:
         return _cmd_recall(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] == "bench":
         return _cmd_bench(load_project(), argv[1:])
+    if argv and argv[0] == "forge":
+        return _cmd_forge(load_project(), argv[1:])
     if argv and argv[0] in ("light", "dark"):
         return (_cmd_light if argv[0] == "light" else _cmd_dark)(load_project())
     if argv and argv[0] in ("daemon", "mored"):
