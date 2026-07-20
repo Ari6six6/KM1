@@ -107,9 +107,11 @@ _DETERMINISTIC = {
 def score(kind: str, brief: str, report: str, workspace, rubric: dict,
           client=None) -> dict:
     """Grade one artifact against its frozen rubric. Returns a FitnessVector:
-    ``{vector, weights, scalar, failing, critique}``. Deterministic legs need no
-    model; the critic leg (a served judge) enters weighted by its measured
-    discrimination D and is absent — weight 0 — until a calibration earns it."""
+    ``{vector, weights, scalar, failing, critique}``. Only the deterministic legs
+    exist today — they need no model. The critic leg is a **reserved seam, not yet
+    built**: its weight is pinned to 0 and ``client`` is unused. Calibration already
+    measures the discrimination D that will weight it when it lands; nothing consumes
+    D yet."""
     checks = (rubric or {}).get("checks", [])
     vector: dict = {}
 
@@ -149,8 +151,8 @@ def score(kind: str, brief: str, report: str, workspace, rubric: dict,
         elif name == "nonempty":
             vector[name] = 1.0 if (report or "").strip() else 0.0
 
-    # The critic leg — a served judge, weighted by D (from calibration). Off until
-    # earned: absent here means weight 0, which is the swarm's law made structural.
+    # The critic leg is not built yet: its weight is a placeholder 0, so it never
+    # affects the scalar. Kept in the schema so the seam is visible, not pretended.
     weights = {name: 1.0 for name in vector}
     weights["critic"] = 0.0
 
@@ -162,6 +164,11 @@ def score(kind: str, brief: str, report: str, workspace, rubric: dict,
 
     total_w = sum(weights[n] for n in vector) or 1.0
     scalar = round(sum(vector[n] * weights[n] for n in vector) / total_w, 4)
+    # A forbidden claim present is a disqualifier, not a deduction: one planted lie
+    # fails the report outright — the same severity the benchmark uses (bench.py),
+    # so the two graders agree on the one severity that matters.
+    if vector.get("forbidden_absent") == 0.0:
+        scalar = 0.0
     failing = sorted(n for n, v in vector.items() if v < _FLOOR)
     critique = _critique(kind, failing, vector) if failing else ""
     return {"vector": vector, "weights": weights, "scalar": scalar,

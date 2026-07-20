@@ -152,6 +152,40 @@ def test_build_order_bounces_a_broken_build_then_delivers_the_fix(project):
     assert (project.workspace / "solution.py").read_text() == _GOOD
 
 
+def test_keep_best_survives_a_regressing_trajectory(project, monkeypatch):
+    # scores rise then fall — [0.5, 0.9, 0.7]. keep-best must deliver attempt 1's
+    # artifact (the 0.9), never the last (0.7). A keep-LAST bug passes every
+    # monotonic test and fails only this one — the property the design rests on.
+    save_json(project.root / "realm" / "calibration.json",
+              {"research": {"gate": "armed", "theta": 0.99, "D": 1.0}})
+    seq = iter([0.5, 0.9, 0.7])
+
+    def fake_score(kind, brief, report, workspace, rubric, client=None):
+        s = next(seq)
+        return {"vector": {"s": s}, "weights": {"s": 1.0}, "scalar": s,
+                "failing": ["s"], "critique": "scripted"}
+
+    monkeypatch.setattr(fitness, "score", fake_score)
+
+    class _Marked(Client):
+        def __init__(self):
+            self.n = -1
+
+        def chat(self, messages, tools=None):
+            text = " ".join((m.get("content") or "") for m in messages)
+            if "This begins the round" in text:   # each attempt opens once
+                self.n += 1
+            return ChatResult(content=f"operator: this is attempt marker A{self.n}.")
+
+    order = run_order(project, "research", "anything", echo=False, client=_Marked())
+    assert order.state == "failed"                       # all three below θ=0.99
+    failed = next(e for e in order.events if e["kind"] == "failed")
+    assert failed["best_attempt"] == 1 and failed["best_score"] == 0.9
+    kept = (order.dir / "report.md").read_text()
+    assert "A1" in kept and "A2" not in kept             # the argmax, not the last
+    assert kept == (order.dir / "attempts" / "1" / "report.md").read_text()
+
+
 def test_armed_gate_fails_with_a_reason_not_a_graveyard(project):
     save_json(project.root / "realm" / "calibration.json",
               {"research": {"gate": "armed", "theta": 0.99, "D": 1.0}})

@@ -3,6 +3,6 @@ __pycache__/
 *.egg-info/
 .mor/
 .pytest_cache/
-build/
-dist/
+/build/
+/dist/
 .forge/

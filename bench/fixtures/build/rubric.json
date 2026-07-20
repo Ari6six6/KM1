@@ -1,0 +1,9 @@
+{
+  "topic": "solution.py must provide add(a, b) that returns the sum",
+  "checks": [
+    {
+      "type": "acceptance_test",
+      "value": "acceptance_test.py"
+    }
+  ]
+}

@@ -48,6 +48,11 @@ def test_rubric_is_an_event_never_spoken_into_the_hall(project):
     assert rubric["seq"] < next(e["seq"] for e in order.events if e["kind"] == "executing")
     hall = order.hall_path.read_text() if order.hall_path.exists() else ""
     assert "required_fact" not in hall and '"checks"' not in hall
+    # every fitness event names its rubric and carries θ + verdict, so the gate is
+    # auditable from the log alone — no join against mutable calibration state
+    fits = [e for e in order.events if e["kind"] == "fitness"]
+    assert fits and all(e["rubric_seq"] == rubric["seq"] for e in fits)
+    assert all("theta" in e and "verdict" in e for e in fits)
 
 
 def test_offline_order_gate_is_advisory_and_still_delivers(project):

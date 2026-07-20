@@ -5,8 +5,9 @@ against a corpus of *known* good and *known* poisoned reports, that its score
 actually separates them — and where to place the cut. Nothing is guessed:
 
   D        the critic's discrimination — AUC of the score over good vs. poison.
-           It is the critic leg's *weight*: a judge that can't tell a planted lie
-           from an honest report is weighted 0, by law.
+           Measured and recorded now, reserved to *weight* the critic leg once that
+           leg is built (a judge that can't tell a planted lie from an honest report
+           will weigh 0, by law). Today it is telemetry; nothing consumes it yet.
   θ_α      the cut. Neyman–Pearson: the (1−α) quantile of the poison scores, so at
            most a fraction α of poison clears it. α — the Master's acceptable-lie
            rate — prices the lies.

@@ -152,13 +152,20 @@ class OrderStore:
         return [o for o in (self.load(i) for i in ids) if o is not None]
 
 
-def _render_report(order: Order, entries: list, mode: str) -> str:
-    """The delivered artifact: the crew's conclusion, then the Hall that made it."""
-    conclusion = ""
+def _conclusion(entries: list) -> str:
+    """The crew's closing answer — the last line addressed to the operator. This,
+    not the whole report, is what the gate scores: the rendered report repeats the
+    brief in its title and Hall, so scoring the full text lets a content-free crew
+    self-answer on brief-derived checks (the scorer would grade the question)."""
     for e in reversed(entries):
         if e.get("addressee") == "operator":
-            conclusion = e.get("text", "")
-            break
+            return e.get("text", "")
+    return ""
+
+
+def _render_report(order: Order, entries: list, mode: str) -> str:
+    """The delivered artifact: the crew's conclusion, then the Hall that made it."""
+    conclusion = _conclusion(entries)
     lines = [f"# {order.kind.title()}: {order.brief}", "",
              conclusion or "_(the crew produced no closing line)_", "",
              "---", "", "## How the crew worked (the Hall)", ""]
@@ -176,8 +183,9 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
                   on_turn=None) -> Order:
     """Run an order through the Hall as a **bounded gate loop**, leaving the best
     artifact of up to ``B+1`` attempts. Every transition is an event, so the whole
-    life is on disk the instant it happens — a crash mid-loop resumes at its last
-    recorded attempt.
+    life is on disk the instant it happens. (A crash mid-loop is re-run from the
+    start by the daemon's reconcile — the whole order replays; research is
+    idempotent. Resuming at the last recorded attempt is a later refinement.)
 
     The cycle: freeze a rubric at ``planned`` (an event, never a spoken line — the
     two walls), then work → score → decide. On a measured shortfall with an armed
@@ -191,7 +199,7 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
     from mor.config import gate_params
 
     try:
-        budget = gate_params()["budget"]
+        budget = max(0, gate_params()["budget"])   # a bad config never crashes the loop
         rubric = fitness.make_rubric(order.kind, order.brief, client=client,
                                      workspace=project.workspace)
         order.record("planned", plan=(f"gate the {order.kind}: work, score against a "
@@ -220,16 +228,22 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
             (adir / "report.md").write_text(report_text)
 
             order.record("verifying", attempt=attempt)
-            fit = fitness.score(order.kind, order.brief, report_text,
+            # Score the conclusion, not the whole report — the report echoes the
+            # brief in its title and Hall, and grading that lets the crew self-answer.
+            fit = fitness.score(order.kind, order.brief, _conclusion(entries),
                                 project.workspace, rubric, client=client)
+            verdict, theta = fitness.gate(fit["scalar"], order.kind, project)
+            # The fitness event carries θ and the verdict, so *why* an attempt was
+            # accepted is answerable from the log alone — not by joining against a
+            # calibration state that a later recalibration would overwrite.
             order.record("fitness", attempt=attempt, rubric_seq=rubric_evt["seq"],
                          vector=fit["vector"], weights=fit["weights"], scalar=fit["scalar"],
+                         theta=theta, verdict=verdict,
                          failing=fit["failing"], critique=fit["critique"])
 
             if best is None or fit["scalar"] > best[0]:
                 best = (fit["scalar"], report_text, session.mode, attempt, fit)
 
-            verdict, _theta = fitness.gate(fit["scalar"], order.kind, project)
             if verdict != "reject":         # accept or advisory — stop, keep this
                 break
             if attempt < budget:            # a licensed shortfall — coach and retry
