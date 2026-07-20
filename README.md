@@ -456,13 +456,25 @@ Inspect it, edit it, delete it — it's just files.
 
 ---
 
-## A note on what this replaced
+## A note on what this is
 
-MoRE began as a much larger, heavily-themed project ("Masters of the Realm").
-This is a deliberate reduction to the part that was actually a working harness: a
-model client, a think→act tool loop, sandboxed tools with a real egress guard,
-name-based turn-taking, and persistent memory. The elaborate layers on top —
-self-modifying source, a knowledge graph, the nightly "dream," the rendered
-"cathedral," and the rest — were removed. Nothing is lost: the full history is in
-git, and the earlier design lives on the `claude/setup-from-scratch` branch. This
-is the harness, rebuilt clean.
+MoRE began as a much larger, heavily-themed project ("Masters of the Realm") — an
+organism described in nine books that the runtime did not actually contain. It was
+amputated to the part that was truly a working harness, and then the organism was
+grown back on those bones, one law-abiding stone at a time: a streaming,
+cancellable mind; work as durable, resumable **orders**; a headless **daemon** that
+survives its own death; a **Field** that owns its compute with a wallet-safe
+ledger; **memory** and the day's ritual (the Chant, the walls); the **watch** that
+never sleeps; a hash-pinned **benchmark** judge; a **Forge** that improves the
+source under quarantine, judged only by a benchmark it cannot reach (JUICE =
+Δbenchmark); a **Dreaming** that wakes the realm into its own questions; a **Yard**
+that runs forged code jailed, never in-process; and a **Cathedral** that renders
+the whole thing as one page you can point at.
+
+The difference between this and the books is that everything here is enforced by
+construction and covered by a test — the elaborate layers describe something that
+exists. The full history, and every round of the argument that shaped it, is in
+git; the earliest design lives on the `claude/setup-from-scratch` branch.
+
+*The day is for answers. The night is for questions. Where there was data, there
+will be data.* &#9651;
