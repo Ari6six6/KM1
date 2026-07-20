@@ -192,7 +192,8 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
 
     try:
         budget = gate_params()["budget"]
-        rubric = fitness.make_rubric(order.kind, order.brief, client=client)
+        rubric = fitness.make_rubric(order.kind, order.brief, client=client,
+                                     workspace=project.workspace)
         order.record("planned", plan=(f"gate the {order.kind}: work, score against a "
                                       f"frozen rubric, keep the best of ≤{budget + 1} attempts"))
         # Wall 1 (temporal): the rubric is an event at seq k, before any work.

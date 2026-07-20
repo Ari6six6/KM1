@@ -61,22 +61,35 @@ def _salient(brief: str, limit: int = 6) -> list:
     return out[:limit]
 
 
-def make_rubric(kind: str, brief: str, client=None) -> dict:
-    """The acceptance rubric for an order — a closed list of typed checks. Offline
-    it is a deterministic ``template``; the ``client`` seam is where a served
-    planner authors a real one (same schema), still emitted as an event, never a
-    spoken line. Returns ``{"authored_by", "checks"}``."""
+_ACCEPTANCE_FILE = "acceptance_test.py"
+
+
+def make_rubric(kind: str, brief: str, client=None, workspace=None) -> dict:
+    """The acceptance rubric for an order — a closed list of typed checks, frozen
+    here at ``planned`` and never spoken into the Hall. Offline it is a
+    deterministic ``template``; the ``client`` seam is where a served planner
+    authors a real one (same schema). Returns ``{"authored_by", "checks"}``.
+
+    For **build**, if the operator (or a planner) has dropped an ``acceptance_test.py``
+    in the workspace, its *content* is frozen into the rubric now, before the worker
+    runs — the untouchable judge, ported from the Forge to the order via the event
+    log. The worker's job is to make its code pass an exam it cannot edit, because
+    the exam is restored from this frozen copy before it is run (see ``score``)."""
     checks: list = []
     if kind == "research":
         for term in _salient(brief):
             checks.append({"type": "required_fact", "value": term})
         if re.search(r"\b(cite|source|sources|reference)\b", brief.lower()):
             checks.append({"type": "citation_substring", "value": "http"})
+    elif kind == "build" and workspace is not None:
+        acc = workspace / _ACCEPTANCE_FILE
+        if acc.exists():
+            checks.append({"type": "acceptance_test", "value": _ACCEPTANCE_FILE,
+                           "content": acc.read_text()})
     elif kind == "fetch":
         checks.append({"type": "nonempty_report", "value": ""})
-    # build's real rubric (which files, which behaviours) needs a planner or a
-    # human; the offline template stays minimal rather than guess and grade on a
-    # lie. Absent checks → an advisory, non-blocking read.
+    # With no checks (a build with no acceptance test, say) the read is advisory —
+    # it scores and flags but never blocks, rather than grade on a lie.
     return {"authored_by": "template", "checks": checks}
 
 
@@ -98,11 +111,28 @@ def score(kind: str, brief: str, report: str, workspace, rubric: dict,
     model; the critic leg (a served judge) enters weighted by its measured
     discrimination D and is absent — weight 0 — until a calibration earns it."""
     checks = (rubric or {}).get("checks", [])
+    vector: dict = {}
+
+    # The untouchable judge (build): restore each frozen acceptance test from the
+    # rubric, overwriting whatever the worker left, then run it. A worker that
+    # weakened its own exam is judged by the original — construction-true, exactly
+    # as the Forge restores bench/ before scoring a mutant.
+    acceptances = [c for c in checks if c.get("type") == "acceptance_test"]
+    if acceptances and workspace is not None:
+        oks = []
+        for c in acceptances:
+            name = c.get("value", _ACCEPTANCE_FILE)
+            if c.get("content") is not None:
+                (workspace / name).write_text(c["content"])
+            oks.append(bench.run_acceptance(workspace, name))
+        vector["acceptance"] = min(oks) if oks else 0.0
+
     buckets: dict = {}
     for c in checks:
+        if c.get("type") == "acceptance_test":
+            continue
         buckets.setdefault(c.get("type"), []).append(c.get("value", ""))
 
-    vector: dict = {}
     for ctype, values in buckets.items():
         name = _DETERMINISTIC.get(ctype)
         if name == "required_facts":
@@ -144,6 +174,7 @@ _COMPONENT_HINT = {
     "forbidden_absent": "the report contains a claim the rubric forbids",
     "files_present": "expected files were not produced in the workspace",
     "tests_pass": "the test did not pass",
+    "acceptance": "the code did not pass the frozen acceptance test",
     "nonempty": "the report is empty",
 }
 

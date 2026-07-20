@@ -234,6 +234,14 @@ whose fixtures aren't written yet) the gate runs **advisory** — it scores and
 flags, but delivers as before, so the DEMO promise holds. `mor gate` shows every
 measuring stick's state.
 
+**Build needs no model at all.** A build order is judged by an **acceptance test**
+frozen at `planned` — its content recorded to the log, then *restored over whatever
+the worker left* before it runs, so a crew can't weaken its own exam (the Forge's
+untouchable-judge law, ported to the order via the event log). Because the verdict
+is an exit code, the build gate calibrates and **arms entirely offline** — a build
+that writes `return a - b` for `add` is caught and bounced on your laptop, no GPU,
+no tokens.
+
 ### Headless — the daemon
 
 A REPL is a session; a daemon is a presence. `mored` owns the realm and runs

@@ -154,6 +154,25 @@ def check_test_passes(workspace, test_file: "str | None") -> float:
         return 0.0
 
 
+def run_acceptance(workspace, name: str) -> float:
+    """Run a frozen acceptance test against the workspace, immune to stale bytecode
+    from a prior attempt. When the gate scores attempt after attempt in one
+    workspace, a rewritten ``solution.py`` of the same length within the filesystem's
+    mtime granularity can leave Python reading last attempt's ``.pyc`` — so clear the
+    caches and forbid new ones, and the *current* source is always what is judged."""
+    if not name or workspace is None or not (workspace / name).exists():
+        return 0.0
+    for pc in workspace.rglob("__pycache__"):
+        shutil.rmtree(pc, ignore_errors=True)
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    try:
+        r = subprocess.run([sys.executable, name], cwd=str(workspace), env=env,
+                           capture_output=True, timeout=30)
+        return 1.0 if r.returncode == 0 else 0.0
+    except (OSError, subprocess.TimeoutExpired):
+        return 0.0
+
+
 def _score_research(task: dict, order, project, contexts) -> float:
     report = ""
     for p in order.artifacts():

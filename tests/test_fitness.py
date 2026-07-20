@@ -3,9 +3,11 @@ and keep-best driving a real verifying→executing cycle."""
 
 from __future__ import annotations
 
+import json
+
 from mor import fitness
 from mor.config import save_json
-from mor.llm import Client, ChatResult
+from mor.llm import Client, ChatResult, ToolCall
 from mor.order import run_order, OrderStore
 
 
@@ -79,6 +81,75 @@ def test_armed_gate_retries_and_keeps_the_better_attempt(project):
     assert len(scored) >= 2 and scored[-1] > scored[0]
     delivered = next(e for e in order.events if e["kind"] == "delivered")
     assert delivered["gate"] == "armed" and delivered["chosen_attempt"] >= 1
+
+
+def test_acceptance_test_is_frozen_at_planned_and_untouchable(project):
+    # the operator drops a frozen exam in the workspace; make_rubric freezes its
+    # content at planned (Wall 1), and score restores it before judging — so a
+    # worker that weakens its own exam is caught by the original (untouchable).
+    ws = project.workspace
+    (ws / "acceptance_test.py").write_text(
+        "from solution import add\nassert add(2, 3) == 5\nprint('ok')\n")
+    rubric = fitness.make_rubric("build", "add(a,b)", workspace=ws)
+    acc = [c for c in rubric["checks"] if c["type"] == "acceptance_test"]
+    assert acc and acc[0]["content"]
+
+    # a broken solution AND a worker that tampered the exam to always pass
+    (ws / "solution.py").write_text("def add(a, b):\n    return a - b\n")
+    (ws / "acceptance_test.py").write_text("print('ok')\n")
+    fit = fitness.score("build", "add(a,b)", "", ws, rubric)
+    assert fit["vector"]["acceptance"] == 0.0 and "acceptance" in fit["failing"]
+    # the tampered exam on disk was restored to the frozen original before running
+    assert "add(2, 3) == 5" in (ws / "acceptance_test.py").read_text()
+
+    # a correct solution passes the same frozen exam
+    (ws / "solution.py").write_text("def add(a, b):\n    return a + b\n")
+    assert fitness.score("build", "add(a,b)", "", ws, rubric)["vector"]["acceptance"] == 1.0
+
+
+_GOOD = "def add(a, b):\n    return a + b\n"
+_BROKEN = "def add(a, b):\n    return a - b\n"
+
+
+class _BuildCrew(Client):
+    """A crew that builds a broken `add` first, then — coached by the gate's
+    critique — builds a correct one. The lead delegates; the worker writes."""
+
+    def chat(self, messages, tools=None):
+        names = {(t.get("function") or {}).get("name") for t in (tools or [])}
+        ctx = " ".join((m.get("content") or "") for m in messages)
+        coached = "scored and fell short" in ctx
+        if "write_file" in names:                        # the worker
+            if messages and messages[-1].get("role") == "tool":
+                return ChatResult(content="lead, wrote solution.py. over to you.")
+            src = _GOOD if coached else _BROKEN
+            return ChatResult(content=None, tool_calls=[ToolCall(
+                "w", "write_file", json.dumps({"path": "solution.py", "content": src}))])
+        if "wrote solution.py" in ctx:                   # the lead, after the worker
+            return ChatResult(content="operator: the build is done.")
+        return ChatResult(content="worker, write solution.py with add(a, b). worker, go.")
+
+
+def test_build_order_bounces_a_broken_build_then_delivers_the_fix(project):
+    # an armed build gate + a frozen acceptance test = a build order that catches
+    # its own broken code and retries — end to end, offline, no model.
+    (project.workspace / "acceptance_test.py").write_text(
+        "from solution import add\nassert add(2, 3) == 5\nassert add(-2, 5) == 3\n"
+        "print('ok')\n")
+    save_json(project.root / "realm" / "calibration.json",
+              {"build": {"gate": "armed", "theta": 0.5, "D": 1.0}})
+
+    order = run_order(project, "build", "a function add(a, b) in solution.py",
+                      echo=False, client=_BuildCrew())
+    assert order.state == "delivered"
+    kinds = [e["kind"] for e in order.events]
+    assert "retry" in kinds                       # the broken first build was bounced
+    scored = [e["scalar"] for e in order.events if e["kind"] == "fitness"]
+    assert scored[0] == 0.0 and scored[-1] == 1.0
+    delivered = next(e for e in order.events if e["kind"] == "delivered")
+    assert delivered["gate"] == "armed" and delivered["chosen_attempt"] == 1
+    # the acceptance test the crew ran was the frozen one, not whatever it wrote
+    assert (project.workspace / "solution.py").read_text() == _GOOD
 
 
 def test_armed_gate_fails_with_a_reason_not_a_graveyard(project):

@@ -40,16 +40,49 @@ def fixtures_root() -> Path:
     return bench_dir() / "fixtures"
 
 
-def _read_set(d: Path) -> list:
-    return [p.read_text() for p in sorted(d.glob("*.md"))] if d.exists() else []
+def _fixture_items(d: Path) -> list:
+    """A kind's fixtures: text reports (``*.md``) for research/fetch, or workspace
+    snapshots (subdirectories of files) for executable-truth kinds like build."""
+    if not d.exists():
+        return []
+    md = sorted(d.glob("*.md"))
+    return md if md else sorted(p for p in d.iterdir() if p.is_dir())
 
 
 def load_fixtures(kind: str) -> tuple:
-    """(clean_reports, poison_reports, rubric) for a kind, or ([], [], None) if the
-    corpus for it hasn't been written yet."""
+    """(clean_items, poison_items, rubric) for a kind, or ([], [], None) if the
+    corpus hasn't been written yet. Freezes the acceptance test's content into the
+    rubric exactly as an order does at ``planned`` — the judge is fixed before it
+    ever meets a fixture."""
     base = fixtures_root() / kind
     rubric = load_json(base / "rubric.json", None)
-    return _read_set(base / "clean"), _read_set(base / "poisoned"), rubric
+    if rubric:
+        for c in rubric.get("checks", []):
+            if c.get("type") == "acceptance_test" and "content" not in c:
+                acc = base / c.get("value", "acceptance_test.py")
+                if acc.exists():
+                    c["content"] = acc.read_text()
+    return _fixture_items(base / "clean"), _fixture_items(base / "poisoned"), rubric
+
+
+def _score_item(kind: str, item: Path, rubric: dict) -> float:
+    """Score one fixture. A text report scores directly; a workspace snapshot is
+    materialized into a scratch dir first, so its real test actually runs and the
+    frozen acceptance test is restored over it — the same path a live order takes."""
+    if item.is_dir():
+        import shutil
+        import tempfile
+        tmp = Path(tempfile.mkdtemp(prefix="morfix-"))
+        try:
+            for f in item.rglob("*"):
+                if f.is_file():
+                    dest = tmp / f.relative_to(item)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(f, dest)
+            return fitness.score(kind, "", "", tmp, rubric)["scalar"]
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    return fitness.score(kind, "", item.read_text(), None, rubric)["scalar"]
 
 
 def _auc(pos: list, neg: list) -> float:
@@ -72,8 +105,19 @@ def _quantile(xs: list, q: float) -> float:
     return round(s[idx], 4)
 
 
-def _score_all(kind: str, reports: list, rubric: dict) -> list:
-    return [fitness.score(kind, "", r, None, rubric)["scalar"] for r in reports]
+def _score_all(kind: str, items: list, rubric: dict) -> list:
+    return [_score_item(kind, it, rubric) for it in items]
+
+
+def _theta(good: list, bad: list, alpha: float) -> float:
+    """The cut. Neyman–Pearson places it at the (1−α) quantile of poison; we set it
+    in the *margin* just above that quantile, so a poison score landing exactly on
+    the quantile falls below the cut (0/1 sub-scores tie there otherwise). Where
+    good separates from poison the cut sits halfway into the gap; where it doesn't,
+    it is the quantile itself."""
+    q = _quantile(bad, 1.0 - alpha)
+    above = [g for g in good if g > q]
+    return round((q + min(above)) / 2.0, 4) if above else q
 
 
 def _fixture_hash(kind: str) -> str:
@@ -104,7 +148,7 @@ def calibrate_kind(project, kind: str, *, alpha=None, beta=None) -> dict:
     good = _score_all(kind, clean, rubric)
     bad = _score_all(kind, poison, rubric)
     D = _auc(good, bad)
-    theta = _quantile(bad, 1.0 - alpha)
+    theta = _theta(good, bad, alpha)
     power = round(sum(1 for g in good if g >= theta) / len(good), 4) if good else 0.0
     n_poison = len(poison)
 

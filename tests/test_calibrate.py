@@ -38,8 +38,24 @@ def test_a_generous_alpha_arms_the_gate_when_resolution_allows(project):
     assert cal["gate"] == "armed" and cal["theta"] == ev["theta"]
 
 
+def test_build_gate_arms_offline_on_executable_truth(project):
+    # build fitness is running a frozen acceptance test — no model, ever. With a
+    # generous-enough alpha for the corpus size, the gate arms entirely offline.
+    ev = calibrate.calibrate_kind(project, "build", alpha=0.15, beta=0.15)
+    assert ev["D"] == 1.0                          # clean pass the exam, poison fail it
+    assert ev["power_at_theta"] == 1.0
+    assert 0.0 < ev["theta"] < 1.0                 # the cut lands in the margin
+    assert ev["gate"] == "armed"
+
+
+def test_build_stays_advisory_when_poison_is_too_thin_for_alpha(project):
+    # same corpus, tight alpha: n_poison < 1/alpha, so the cut is noise → advisory.
+    ev = calibrate.calibrate_kind(project, "build", alpha=0.02)
+    assert ev["D"] == 1.0 and ev["gate"] == "advisory"
+
+
 def test_missing_corpus_is_honest(project):
-    ev = calibrate.calibrate_kind(project, "build")
+    ev = calibrate.calibrate_kind(project, "fetch")
     assert ev.get("error") and ev["gate"] == "advisory"
 
 
