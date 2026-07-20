@@ -9,9 +9,19 @@ real, sandboxed tools, and **you** steer from the top. It's the Python standard
 library only — nothing to install to run it — and it ships with an offline
 stand-in so you can watch it move on a fresh clone.
 
+But it's more than a chat loop. It does durable **work orders** that deliver files;
+runs headless as a **daemon** that survives its own `kill -9`; **owns its GPU
+compute** with a wallet-safe cost ledger; **remembers** its work and keeps a daily
+ritual; works a **night shift** that improves its own source under a benchmark it
+cannot game, and *wonders* — waking into questions no one asked; and renders itself
+as one **page you can point at**. Every subsystem is an append-only event log you
+can `cat`, every claim is covered by a test, and every piece runs offline (labelled
+`DEMO`) until you give it a model. Jump to [a day in the realm](#a-day-in-the-realm)
+for the whole arc in nine commands.
+
 ```sh
-git clone https://github.com/Ari6six6/MoRE.git
-cd MoRE
+git clone https://github.com/Ari6six6/KM1.git
+cd KM1
 ./mor-cli                 # run in place, no install
 ```
 ```
@@ -31,12 +41,12 @@ lead → operator: The workspace has three modules — a CLI entry point, a stor
 (needs Python 3.10+):
 
 ```sh
-cd MoRE
+cd KM1
 ./mor-cli
 ```
 
 Everywhere below, `mor <thing>` is shorthand for `./mor-cli <thing>` run from the
-`MoRE` folder. They are the same — use `./mor-cli` if you haven't installed.
+project folder. They are the same — use `./mor-cli` if you haven't installed.
 
 <details>
 <summary>Optional: a global <code>mor</code> command</summary>
@@ -44,7 +54,7 @@ Everywhere below, `mor <thing>` is shorthand for `./mor-cli <thing>` run from th
 If you'd rather type `mor` from anywhere, either add an alias:
 
 ```sh
-echo "alias mor=\"$HOME/MoRE/mor-cli\"" >> ~/.bashrc && source ~/.bashrc
+echo "alias mor=\"$HOME/KM1/mor-cli\"" >> ~/.bashrc && source ~/.bashrc
 ```
 
 …or install it (on modern Debian/Ubuntu, use a venv or pipx — a bare
@@ -59,7 +69,7 @@ python3 -m venv .venv && . .venv/bin/activate && pip install -e .   # venv
 Verify (optional):
 
 ```sh
-python3 -m pytest -q            # 50 tests, no model or network needed
+python3 -m pytest -q            # 171 tests, no model or network needed
 ```
 
 ---
@@ -397,62 +407,113 @@ observation the agent reads on its next step.
 
 ---
 
-## Commands
+## A day in the realm
 
-Run `mor` with no arguments for the shell; inside it:
-
-```
-<text>            give the crew a task
-/order <kind> <brief>   run a work order (kind: research) → an artifact
-/orders           list orders, their state, and their artifacts
-/pull <id>        print an order's artifact paths (scp-ready)
-/agents           list the crew and who can reach the web
-/allow <domain>   open web access for a domain  (/allow with no arg shows the list)
-/deny <domain>    close a domain again
-/ping             check the model endpoint answers
-/gpu ssh <ssh…>   provision + serve a model on a GPU box (see above)
-/gpu model|status|off|down   pick a model · check · drop tunnel · stop the box
-/note <text>      add a durable project note   ·  /notes  show them
-/model            show how MoRE reaches the model
-/project [name]   show, switch, or create a project
-/crew init        write an editable crew.json
-/help  ·  /quit
-```
-
-From the shell (scriptable):
+The pieces fit into one arc — this is the whole thing, end to end:
 
 ```sh
-mor run "audit the workspace for secrets and report"   # one task, then exit
-mor order research "compare 3 http libraries, sources"  # a work order → an artifact
-mor pull <order-id>                                     # the artifact path, scp-ready
-mor -C ~/code/my-repo run "find the failing test"      # work on a real directory
-mor config --base-url URL --model M --shell container   # configure
-mor ping                                                # test the endpoint
-mor allow docs.python.org                               # open one domain
+mor gpu ssh -p 24439 root@1.2.3.4 -L 8080:localhost:8080   # a body: paste your box's ssh string
+mor light                                                  # open the day (posts last night's Chant)
+mor order research "the 3 best python http libraries, sourced"   # do real work → an artifact
+mor pull <order-id>                                        # the file, scp-ready
+mor watch "that repo's issues, what changed" 6h            # standing work, on a schedule
+mor forge on                                               # let the night improve the realm
+mor dark                                                   # close the day: fold the Chant, then dream
+mor report                                                 # the morning page: work · cost · forge · questions
+mor cathedral                                              # render the whole realm as one page you can point at
 ```
 
+Run `mor daemon` (or `nohup mor daemon &`) and it does the night shift for you —
+watches fire, orders resume, the tunnel self-heals — whether or not you're looking.
+
+## Command reference
+
+Run `mor` with no arguments for the interactive shell; inside it every command is
+also a slash-command (`/order …`). From a terminal it's `mor <command>`. They are
+the same surface.
+
+**Work**
+
+| command | what |
+|---|---|
+| `<text>` / `mor run "<task>"` | give the crew a task (one round, or one-shot then exit) |
+| `mor order <kind> "<brief>"` | a work order → an artifact. kinds: `research` · `build` · `fetch` |
+| `mor orders` · `mor pull <id>` | list orders and their state · print an order's artifact path(s) |
+| `mor watch "<what>" <every>` | a recurring order (`90s`/`30m`/`6h`/`1d`) · `mor watches` · `mor unwatch <id>` |
+| `mor recall "<query>"` | what the realm remembers from its own past work |
+
+**The day & the night shift**
+
+| command | what |
+|---|---|
+| `mor light` · `mor dark` | open a day (post the Chant) · close it (fold Chant + walls, then dream) |
+| `mor report` | the morning page: orders, cost, forge verdict/JUICE, the dream's questions |
+| `mor bench run\|list\|pin` | the benchmark suite — the judge the Forge must satisfy |
+| `mor forge once\|log` | one quarantined self-improvement, judged by the benchmark |
+| `mor cathedral` | render the realm as one self-contained page (also served at `/cathedral`) |
+
+**Compute — a body for the crew**
+
+| command | what |
+|---|---|
+| `mor gpu ssh <ssh…>` | provision + serve a model on your box (preflight → canary → adopt) |
+| `mor gpu model\|status\|watch\|reconnect\|off\|down` | pick a model · status · self-heal the tunnel · reconnect · drop · stop |
+| `mor up` · `mor down [box]` | opt-in auto-rent a box · destroy (rented) or release (BYO) |
+| `mor field [rate <box> <$/hr>]` | boxes, state, cost to the cent · set a BYO box's rate |
+| `mor mind [use <n\|label>]` | the mind registry — which served box a run routes to |
+
+**Headless & tooling**
+
+| command | what |
+|---|---|
+| `mor daemon` · `mor status` | run the headless daemon · is one alive, and what's it holding |
+| `mor yard list\|run <name> [json]` | run a forged tool, jailed (never in the realm's process) |
+| `mor crew init\|personas` · `mor agents` | write a crew.json (generic · or the pantheon) · list the crew |
+| `mor config …` · `mor model` · `mor ping` | set endpoint/shell/web · show how it reaches the model · test it |
+| `mor allow <domain>` · `mor deny <domain>` | open/close a domain (only when `--web gated`) |
+| `mor note <text>` · `mor notes` | add / show a durable project note |
+| `mor project [name]` | show, switch, or create a project · `mor help` · `mor quit` |
+
 Environment overrides (handy for one-off runs and containers): `MOR_BASE_URL`,
-`MOR_MODEL`, `MOR_API_KEY`, `MOR_SHELL`, `MOR_WORKSPACE`, `MOR_HOME`.
+`MOR_MODEL`, `MOR_API_KEY`, `MOR_SHELL`, `MOR_WORKSPACE`, `MOR_HOME`, `MOR_VAST_KEY`,
+`HF_TOKEN` (gated repos), `MOR_DAEMON_URL`.
 
 ---
 
 ## Where things live
 
-Everything is plain files under `$MOR_HOME` (default `~/.mor`):
+Everything is plain files under `$MOR_HOME` (default `~/.mor`) — no database, no
+binary state. Every subsystem's state is an **append-only event log**, and what you
+see is a projection of it, so a crash never leaves a torn realm:
 
 ```
 ~/.mor/
   config.json                     # endpoint + settings
+  daemon_token                    # the daemon's shared secret (0600)
   current_project
   projects/<name>/
     workspace/                    # the shared workspace (unless -C / MOR_WORKSPACE)
-    sessions/<timestamp>.jsonl    # full transcript of each session
+    sessions/<timestamp>.jsonl    # full transcript of each session (the Hall)
     notes.md                      # durable project memory
     allow.json                    # the web allowlist
-    crew.json                     # (optional) your custom crew
+    crew.json                     # (optional) your custom crew / persona pack
+    orders/<id>/                  # one work order: events.jsonl · hall.jsonl · report.md
+    watches.json                  # recurring orders
+    field/
+      events.jsonl                # compute lifecycle: intents / effects / facts, box registry
+      fake_provider.json          # the DEMO provider's simulated boxes
+    mind.json                     # the active mind (which serving box a run routes to)
+    realm/
+      events.jsonl                # the night's ledger: bench scores, forge verdicts, dream questions
+      day.json · last_chant.md · walls.json · chants/   # the day ritual (Chant + walls)
+      dream.json                  # the night's questions, seeded for dawn
+    forged/<name>.py              # forged tools (run jailed by the Yard)
+    cathedral.html                # the rendered "point at it" page
+bench/                            # (in the repo) the benchmark tasks + MANIFEST.sha256 — the judge
 ```
 
-Inspect it, edit it, delete it — it's just files.
+Inspect it, edit it, delete it — it's just files. `cat` any `events.jsonl` to read
+exactly what the realm did and why.
 
 ---
 
