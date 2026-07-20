@@ -40,6 +40,8 @@ class ToolContext:
     on_tool: object = None        # (tool_name, args_json, observation) -> None — a
     #                               sink so the crew's tool use is recorded, not just
     #                               its spoken lines (the hall records words only)
+    on_reasoning: object = None   # (reasoning_text) -> None — a sink for a reasoning
+    #                               model's thinking stream, kept off the Hall
 
 
 @dataclass

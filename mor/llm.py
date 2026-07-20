@@ -97,6 +97,11 @@ class ChatResult:
     content: str | None = None
     tool_calls: list = field(default_factory=list)
     cancelled: bool = False   # True if a Cancel token stopped this completion
+    # A reasoning model's thinking stream, kept apart from the spoken content so it
+    # neither pollutes the routing regex / transcript nor is silently dropped. Two
+    # sources feed it: an out-of-band ``reasoning_content`` field on the wire, and
+    # inline ``<think>…</think>`` blocks lifted out of the content (see ``split_think``).
+    reasoning: str | None = None
 
 
 class Client:
@@ -133,12 +138,40 @@ def _accumulate_tool_calls(store: dict, deltas: list) -> None:
             slot["args"] += fn["arguments"]
 
 
-def _finish(parts: list, tools: dict, cancelled: bool) -> ChatResult:
+_THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL | re.IGNORECASE)
+
+
+def split_think(text: str | None) -> tuple:
+    """Lift inline ``<think>…</think>`` reasoning out of spoken content. Returns
+    ``(clean_content, reasoning)``. Some servers (llama.cpp ``--reasoning-format
+    auto`` among them) emit a reasoning model's thoughts inline in the content
+    rather than in the out-of-band ``reasoning_content`` field; left in place they
+    corrupt the name-mention routing and clutter the transcript everyone reads next.
+    An unclosed ``<think>`` (the stream ran out mid-thought) is treated as reasoning
+    to the end — so a starved turn's thinking is captured, not mistaken for silence."""
+    if not text or "<think>" not in text.lower():
+        return text, ""
+    thoughts = [m.strip() for m in _THINK.findall(text)]
+    clean = _THINK.sub("", text)
+    low = clean.lower()
+    open_idx = low.rfind("<think>")
+    if open_idx != -1:                       # an unclosed block: reason to the end
+        thoughts.append(clean[open_idx + len("<think>"):].strip())
+        clean = clean[:open_idx]
+    reasoning = "\n".join(t for t in thoughts if t)
+    return clean.strip(), reasoning
+
+
+def _finish(parts: list, reason_parts: list, tools: dict, cancelled: bool) -> ChatResult:
     text = "".join(parts)
+    reasoning = "".join(reason_parts)
+    text, inline = split_think(text)
+    if inline:
+        reasoning = (reasoning + "\n" + inline).strip() if reasoning else inline
     calls = [ToolCall(s["id"] or f"c{idx}", s["name"] or "", s["args"] or "{}")
              for idx, s in sorted(tools.items())]
     return ChatResult(content=cut_loops(text) if text else None,
-                      tool_calls=calls, cancelled=cancelled)
+                      tool_calls=calls, reasoning=reasoning or None, cancelled=cancelled)
 
 
 _PROSE_TOOLCALL = re.compile(r"<tool_call>\s*(.*?)</tool_call>", re.DOTALL | re.IGNORECASE)
@@ -186,10 +219,11 @@ def consume_stream(lines, on_token=None, cancel: "Cancel | None" = None) -> Chat
     ``cancelled`` if the token trips mid-stream. Pure over an iterable of lines
     (bytes or str), so it tests without a network."""
     parts: list = []
+    reason_parts: list = []
     tools: dict = {}
     for raw in lines:
         if cancel is not None and cancel.is_set():
-            return _finish(parts, tools, cancelled=True)
+            return _finish(parts, reason_parts, tools, cancelled=True)
         line = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else raw
         line = line.strip()
         if not line or line.startswith(":") or not line.startswith("data:"):
@@ -207,9 +241,14 @@ def consume_stream(lines, on_token=None, cancel: "Cancel | None" = None) -> Chat
             parts.append(piece)
             if on_token:
                 on_token(piece)
+        # A reasoning model streams its thoughts in a side channel — read it so it is
+        # neither dropped nor mistaken for the spoken line (it is not sent to on_token).
+        rpiece = delta.get("reasoning_content") or delta.get("reasoning")
+        if rpiece:
+            reason_parts.append(rpiece)
         if delta.get("tool_calls"):
             _accumulate_tool_calls(tools, delta["tool_calls"])
-    return _finish(parts, tools, cancelled=False)
+    return _finish(parts, reason_parts, tools, cancelled=False)
 
 
 class OpenAIClient(Client):
@@ -236,9 +275,11 @@ class OpenAIClient(Client):
         content = msg.get("content")
         if content and on_token:
             on_token(content)
+        reasoning = msg.get("reasoning_content") or msg.get("reasoning")
         tools: dict = {}
         _accumulate_tool_calls(tools, msg.get("tool_calls") or [])
-        return _finish([content] if content else [], tools, cancelled=False)
+        return _finish([content] if content else [],
+                       [reasoning] if reasoning else [], tools, cancelled=False)
 
     def stream_chat(self, messages: list, tools: list | None = None, *,
                     on_token=None, cancel: "Cancel | None" = None) -> ChatResult:

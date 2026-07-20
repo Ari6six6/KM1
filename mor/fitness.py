@@ -41,6 +41,22 @@ from mor.config import load_json
 # next attempt is coached with.
 _FLOOR = 0.999
 
+# The retry ladder's last word when the endpoint is unreachable (llm.py). If this
+# string is the report, the "answer" is an outage notice, not work — a deterministic
+# leg scores it 0 so it never verifies green (BUG-05). Catches both documented
+# signatures: "the model endpoint didn't respond" and "did not answer".
+_OUTAGE = re.compile(
+    r"the model endpoint (?:didn'?t|did not) respond|did(?:\s*n'?t|\s+not)\s+answer",
+    re.IGNORECASE)
+
+
+def is_outage(text: str) -> bool:
+    """True if the text is (or carries) the endpoint-outage signature — the retry
+    ladder's message when the server was unreachable. Used both as a fitness leg and
+    by the order loop to refuse delivering an outage as a report."""
+    return bool(_OUTAGE.search(text or ""))
+
+
 _STOP = frozenset(
     "the a an and or of to in on at for with by from as is are was were be to and "
     "which who how why what when this that these those it its into over about your "
@@ -81,16 +97,33 @@ def make_rubric(kind: str, brief: str, client=None, workspace=None) -> dict:
         if planned:
             return {"authored_by": "planner", "checks": planned}
         return {"authored_by": "template", "checks": _template_research(brief)}
-    if kind == "build" and workspace is not None:
-        acc = workspace / _ACCEPTANCE_FILE
-        if acc.exists():
-            return {"authored_by": "operator", "checks": [
-                {"type": "acceptance_test", "value": _ACCEPTANCE_FILE,
-                 "content": acc.read_text()}]}
+    if kind == "build":
+        if workspace is not None:
+            acc = workspace / _ACCEPTANCE_FILE
+            if acc.exists():
+                return {"authored_by": "operator", "checks": [
+                    {"type": "acceptance_test", "value": _ACCEPTANCE_FILE,
+                     "content": acc.read_text()}]}
+        # No operator-frozen exam → the served planner authors one now, at planned,
+        # frozen into the rubric event exactly like the operator's (same untouchable
+        # judge). Without this a build with no test degrades to nonempty=1.0 and can
+        # deliver 1.0 with an empty workspace (BUG-06).
+        if _is_served(client):
+            code = _planner_build(brief, client)
+            if code:
+                return {"authored_by": "planner", "checks": [
+                    {"type": "acceptance_test", "value": _ACCEPTANCE_FILE, "content": code}]}
     if kind == "fetch":
+        # A fetch that scores on nonempty alone verifies 1.0 with zero fetches (BUG-07).
+        # The served planner names the files/facts a real fetch must leave behind; the
+        # files_present leg then checks the workspace, not just that prose exists.
+        if _is_served(client):
+            planned = _planner_fetch(brief, client)
+            if planned:
+                return {"authored_by": "planner", "checks": planned}
         return {"authored_by": "template", "checks": [{"type": "nonempty_report", "value": ""}]}
-    # No checks (a build with no acceptance test, say) → an advisory read: it scores
-    # and flags but never blocks, rather than grade on a lie.
+    # No checks (a build with no test and no served planner, say) → an advisory read:
+    # it scores and flags but never blocks, rather than grade on a lie.
     return {"authored_by": "template", "checks": []}
 
 
@@ -164,6 +197,75 @@ def _planner_research(brief: str, client) -> "list | None":
     for f in (data.get("forbidden_claims") or [])[:5]:
         if isinstance(f, str) and f.strip():
             checks.append({"type": "forbidden_claim", "value": f.strip()})
+    if data.get("require_citation"):
+        checks.append({"type": "citation"})
+    return checks or None
+
+
+def _strip_code_fence(text: str) -> str:
+    """Peel a ``` fenced block if the model wrapped its file in one — we want the raw
+    source, not markdown. Leaves unfenced text untouched."""
+    t = (text or "").strip()
+    m = re.search(r"```(?:python)?\s*\n(.*?)```", t, re.DOTALL | re.IGNORECASE)
+    return m.group(1).strip() if m else t
+
+
+def _planner_build(brief: str, client) -> "str | None":
+    """The planner authors an ``acceptance_test.py`` at ``planned``, before any code —
+    the frozen exam a build order must pass, ported from the operator seam to the
+    served model (BUG-06). Returns the file's source, or None on unusable output. It
+    is restored to the workspace and run by ``score`` (the same untouchable path as an
+    operator-frozen exam), so a build can no longer deliver 1.0 with an empty tree."""
+    prompt = (
+        "You are writing the ACCEPTANCE TEST for a build task, BEFORE any code exists. "
+        "Output ONLY the full source of a self-contained Python file named "
+        "acceptance_test.py. It must import the solution the worker will write (assume "
+        "it lands in the same directory, e.g. `from solution import ...`), assert its "
+        "behaviour with plain `assert` statements, print 'ok' on success, and raise / "
+        "exit nonzero on failure. No markdown fences, no prose — just the code. "
+        "Brief: " + brief)
+    try:
+        res = client.chat([{"role": "system", "content": "You write strict, self-"
+                            "contained Python acceptance tests, and nothing else."},
+                           {"role": "user", "content": prompt}])
+    except Exception:  # noqa: BLE001 — a flaky planner falls back, never crashes the order
+        return None
+    code = _strip_code_fence(res.content or "")
+    # A test that asserts nothing is no exam — fall back rather than freeze a no-op.
+    if not code or ("assert" not in code and "raise" not in code):
+        return None
+    return code
+
+
+def _planner_fetch(brief: str, client) -> "list | None":
+    """The planner authors the acceptance spec for a fetch task at ``planned`` — the
+    files a real fetch must leave in the workspace and the facts the saved content must
+    carry, as JSON. Returns a checks list (``files_present`` + ``required_fact`` +
+    optional ``citation``), or None on unusable output (BUG-07)."""
+    prompt = (
+        "You are setting the ACCEPTANCE RUBRIC for a FETCH task — pull data from the "
+        "public web and save it into the workspace — BEFORE any work. Output ONLY a "
+        "JSON object with keys:\n"
+        '  "expected_files": [relative paths the workspace MUST contain afterwards, up to 5],\n'
+        '  "required_facts": [strings the saved content or report MUST contain, up to 5],\n'
+        '  "require_citation": true if a source should be cited, else false.\n'
+        "Judge the work; do not do it. Brief: " + brief)
+    try:
+        res = client.chat([{"role": "system", "content": "You author strict acceptance "
+                            "rubrics as JSON, and nothing else."},
+                           {"role": "user", "content": prompt}])
+    except Exception:  # noqa: BLE001 — a flaky planner falls back, never crashes the order
+        return None
+    data = _first_json_object(res.content or "")
+    if not isinstance(data, dict):
+        return None
+    checks = []
+    for f in (data.get("expected_files") or [])[:5]:
+        if isinstance(f, str) and f.strip():
+            checks.append({"type": "files_present", "value": f.strip()})
+    for f in (data.get("required_facts") or [])[:5]:
+        if isinstance(f, str) and f.strip():
+            checks.append({"type": "required_fact", "value": f.strip()})
     if data.get("require_citation"):
         checks.append({"type": "citation"})
     return checks or None
@@ -247,6 +349,13 @@ def score(kind: str, brief: str, report: str, workspace, rubric: dict,
     # so the two graders agree on the one severity that matters.
     if vector.get("forbidden_absent") == 0.0:
         scalar = 0.0
+    # An outage notice is not an answer: if the report is the endpoint-down string,
+    # score it 0 outright and name it, so a retry is coached and an armed gate rejects
+    # it (the order loop refuses to deliver it even when the gate is advisory).
+    if is_outage(report):
+        vector["endpoint_up"] = 0.0
+        weights["endpoint_up"] = 0.0     # a hard override; the weight is cosmetic
+        scalar = 0.0
     failing = sorted(n for n, v in vector.items() if v < _FLOOR)
     critique = _critique(kind, failing, vector) if failing else ""
     return {"vector": vector, "weights": weights, "scalar": scalar,
@@ -261,6 +370,7 @@ _COMPONENT_HINT = {
     "tests_pass": "the test did not pass",
     "acceptance": "the code did not pass the frozen acceptance test",
     "nonempty": "the report is empty",
+    "endpoint_up": "the model endpoint did not answer — this is an outage notice, not a report",
 }
 
 

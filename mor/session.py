@@ -26,6 +26,41 @@ _OPERATOR_ALIASES = ("operator", "user")
 _MAX_TURNS = 10
 
 
+def pick_client(project, *, echo: bool = True):
+    """Route a run to the active mind and return ``(client, mode)`` — the one place
+    that decides which endpoint answers, so the order path and the Session agree.
+
+    Many boxes → the active one (or the numbered picker on a TTY); one → auto; none
+    → fall back to the endpoint config, else the offline stand-in. This is lifted out
+    of the Session so an order can resolve the *same* served client and hand it to the
+    rubric planner and the critic (else those seams are dead on the live path — the
+    order would freeze a template rubric even with a real model attached)."""
+    from mor import mind
+    from mor.llm import OpenAIClient, make_client
+    from mor.config import endpoint
+    box, needs_selection = mind.chosen(project)
+    if needs_selection and echo and sys.stdin.isatty():
+        box = mind.prompt_selection(project)
+    if box and box.get("base_url"):
+        base = endpoint()
+        return OpenAIClient({**base, "base_url": box["base_url"],
+                             "model": box.get("model") or base["model"]}), "model"
+    return make_client()
+
+
+def mode_for(client) -> str:
+    """The honest label for an injected client. A served model is a ``model`` run; the
+    offline stand-in is ``offline`` (DEMO); anything else injected (a test/scripted
+    client) is ``test``. Fixes a delivered artifact misreporting a real model run as a
+    test merely because the client was passed in rather than picked."""
+    from mor.llm import OpenAIClient, MockClient
+    if isinstance(client, OpenAIClient):
+        return "model"
+    if isinstance(client, MockClient):
+        return "offline"
+    return "test"
+
+
 def next_speaker(speaker: str, text: str, names: list, lead: str) -> str:
     """Who speaks next after ``speaker`` said ``text``.
 
@@ -54,16 +89,16 @@ def next_speaker(speaker: str, text: str, names: list, lead: str) -> str:
 
 class Session:
     def __init__(self, project=None, *, echo: bool = True, client=None,
-                 transcript_path=None, on_turn=None, on_tool=None):
+                 transcript_path=None, on_turn=None, on_tool=None, on_reasoning=None):
         self.project = project or load_project()
         self.crew = load_crew(self.project)
         self.names = [a.name for a in self.crew]
         self.lead = self.crew[0].name
         self.by_name = {a.name: a for a in self.crew}
         if client is not None:
-            self.client, self.mode = client, "test"
+            self.client, self.mode = client, mode_for(client)
         else:
-            self.client, self.mode = self._pick_mind(echo)
+            self.client, self.mode = pick_client(self.project, echo=echo)
         from mor.config import endpoint, web_open
         cfg = endpoint()
         self.shell_mode = cfg.get("shell", "off")
@@ -78,22 +113,10 @@ class Session:
         self.on_turn = on_turn
         # (agent, tool, args_json, observation) -> None — records who did what.
         self.on_tool = on_tool
+        # (agent, reasoning_text) -> None — records a reasoning model's thinking, kept
+        # off the Hall (it is not a spoken line), same per-agent pattern as on_tool.
+        self.on_reasoning = on_reasoning
         self.tainted: list = []
-
-    def _pick_mind(self, echo: bool):
-        """Route to the active mind in the registry: many boxes → the active one
-        (or the picker on a TTY); one → auto; none → fall back to config/offline."""
-        from mor import mind
-        from mor.llm import OpenAIClient, make_client
-        from mor.config import endpoint
-        box, needs_selection = mind.chosen(self.project)
-        if needs_selection and echo and sys.stdin.isatty():
-            box = mind.prompt_selection(self.project)
-        if box and box.get("base_url"):
-            base = endpoint()
-            return OpenAIClient({**base, "base_url": box["base_url"],
-                                 "model": box.get("model") or base["model"]}), "model"
-        return make_client()
 
     # -- one task --------------------------------------------------------
     def run_task(self, text: str) -> None:
@@ -137,7 +160,9 @@ class Session:
                           shell_mode=self.shell_mode, shell_net=self.shell_net,
                           tainted=self.tainted,
                           on_tool=((lambda tool, args, obs: self.on_tool(name, tool, args, obs))
-                                   if self.on_tool else None))
+                                   if self.on_tool else None),
+                          on_reasoning=((lambda text: self.on_reasoning(name, text))
+                                        if self.on_reasoning else None))
         tools = build_tools(agent.tools, ctx)
         user = self._task(name, heard_from, heard, opening=opening, close=close)
         # What the realm remembers from earlier work, relevant to this turn — wired

@@ -201,6 +201,13 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
 
     try:
         budget = max(0, gate_params()["budget"])   # a bad config never crashes the loop
+        # Resolve the mind once, here — the same served client authors the rubric
+        # (the planner seam) and works the order (the Session). Left as None, the
+        # planner and critic seams are dead on every live path, not just the CLI's:
+        # make_rubric(None) → template even with a real model attached (BUG-01).
+        if client is None:
+            from mor.session import pick_client
+            client, _ = pick_client(project, echo=echo)
         rubric = fitness.make_rubric(order.kind, order.brief, client=client,
                                      workspace=project.workspace)
         order.record("planned", plan=(f"gate the {order.kind}: work, score against a "
@@ -224,9 +231,17 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
                              ok=not (obs or "").startswith("ERROR"),
                              result_head=((obs or "").splitlines() or [""])[0][:120])
 
+            def _record_reasoning(agent, text, _a=attempt):
+                # A reasoning model's thinking — never spoken into the Hall, so it is
+                # captured here or lost. Trimmed to keep the event log readable.
+                t = (text or "").strip()
+                if t:
+                    order.record("reasoning", attempt=_a, agent=agent,
+                                 chars=len(t), text=t[:8000])
+
             session = Session(project, echo=echo, client=client,
                               transcript_path=order.hall_path, on_turn=on_turn,
-                              on_tool=_record_tool)
+                              on_tool=_record_tool, on_reasoning=_record_reasoning)
             task = _task_for(order.kind, order.brief)
             if carry:          # coaching after a scored failure — the near side of Wall 2
                 task = task + "\n\n" + fitness.coaching(carry)
@@ -241,7 +256,8 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
             order.record("verifying", attempt=attempt)
             # Score the conclusion, not the whole report — the report echoes the
             # brief in its title and Hall, and grading that lets the crew self-answer.
-            fit = fitness.score(order.kind, order.brief, _conclusion(entries),
+            conclusion = _conclusion(entries)
+            fit = fitness.score(order.kind, order.brief, conclusion,
                                 project.workspace, rubric, client=client)
             verdict, theta = fitness.gate(fit["scalar"], order.kind, project)
             # The fitness event carries θ and the verdict, so *why* an attempt was
@@ -253,7 +269,7 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
                          failing=fit["failing"], critique=fit["critique"])
 
             if best is None or fit["scalar"] > best[0]:
-                best = (fit["scalar"], report_text, session.mode, attempt, fit)
+                best = (fit["scalar"], report_text, session.mode, attempt, fit, conclusion)
 
             if verdict != "reject":         # accept or advisory — stop, keep this
                 break
@@ -262,10 +278,21 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
                 order.record("retry", attempt=attempt + 1, carry=carry)
 
         # Terminal — keep-best: the trajectory may thrash; the deliverable can't.
-        best_scalar, best_text, best_mode, best_attempt, best_fit = best
+        best_scalar, best_text, best_mode, best_attempt, best_fit, best_conclusion = best
         (order.dir / "report.md").write_text(best_text)
         verdict, theta = fitness.gate(best_scalar, order.kind, project)
-        if verdict == "reject":
+        # An order whose best deliverable is the endpoint-outage string is a failure,
+        # not a delivery — independent of the gate, which is advisory offline and
+        # would otherwise ship the "(the model endpoint didn't respond)" line as the
+        # report body. Every real attempt scores 0 on the outage leg (fitness), so a
+        # non-outage conclusion here means an attempt produced actual work (BUG-05).
+        if fitness.is_outage(best_conclusion):
+            order.record("failed",
+                         reason="the model endpoint did not answer — every attempt "
+                                "returned the outage message, not a report",
+                         best_attempt=best_attempt, best_score=round(best_scalar, 4),
+                         critique=best_fit["critique"])
+        elif verdict == "reject":
             order.record("failed",
                          reason=f"below the gate — best {best_scalar:.2f} < θ {theta:.2f} "
                                 f"after {budget + 1} attempts",

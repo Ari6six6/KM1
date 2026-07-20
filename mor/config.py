@@ -59,6 +59,11 @@ def endpoint() -> dict:
 
     With no base URL set anywhere, MoRE runs on the built-in offline stand-in so
     the crew still moves on a fresh clone.
+
+    Note on reasoning models: ``max_tokens`` counts reasoning *and* content jointly,
+    so a tight budget can be spent entirely on thinking and leave an empty spoken line
+    (the loop marks this "(thought but could not speak — raise max_tokens)"). Give
+    reasoning models room — ``max_tokens`` ≥ 1536 — via config or the server flags.
     """
     cfg = load_json(config_path(), {})
     base = os.environ.get("MOR_BASE_URL") or cfg.get("base_url") or ""
