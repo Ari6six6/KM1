@@ -32,9 +32,33 @@ def test_order_state_is_a_projection_replayed_from_disk(project):
 def test_order_lifecycle_events_are_recorded_in_order(project):
     order = run_order(project, "research", "recon", echo=False)
     kinds = [e["kind"] for e in order.events]
-    assert kinds[:3] == ["received", "planned", "executing"]
-    assert "verifying" in kinds and kinds[-1] == "delivered"
+    # the gate loop: the rubric is frozen at planned, before any work
+    assert kinds[:3] == ["received", "planned", "rubric"]
+    for k in ("executing", "verifying", "fitness"):
+        assert k in kinds
+    assert kinds[-1] == "delivered"
     assert [e["seq"] for e in order.events] == list(range(len(order.events)))
+
+
+def test_rubric_is_an_event_never_spoken_into_the_hall(project):
+    # Wall 2: the rubric rides the event log, never the transcript the crew reads.
+    order = run_order(project, "research", "top async http libraries with sources",
+                      echo=False)
+    rubric = next(e for e in order.events if e["kind"] == "rubric")
+    assert rubric["seq"] < next(e["seq"] for e in order.events if e["kind"] == "executing")
+    hall = order.hall_path.read_text() if order.hall_path.exists() else ""
+    assert "required_fact" not in hall and '"checks"' not in hall
+
+
+def test_offline_order_gate_is_advisory_and_still_delivers(project):
+    # No calibration on a fresh realm → advisory: scored, flagged, delivered (DEMO).
+    order = run_order(project, "research", "anything at all", echo=False)
+    assert order.state == "delivered"
+    delivered = next(e for e in order.events if e["kind"] == "delivered")
+    assert delivered["gate"] == "advisory"
+    assert "score" in delivered
+    fit = next(e for e in order.events if e["kind"] == "fitness")
+    assert "vector" in fit and isinstance(fit["scalar"], (int, float))
 
 
 def test_order_lists_newest_first(project):

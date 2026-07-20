@@ -77,6 +77,22 @@ def endpoint() -> dict:
     }
 
 
+def gate_params() -> dict:
+    """The Gate's realm-wide knobs. Two are *values* the Master feels in the chest,
+    so they have no kinds (difficulty lives in each kind's ROC, not here):
+
+        alpha   the acceptable-lie rate — how often a wrong report may ship (Type I)
+        beta    the acceptable retry-tax — how often honest work may be bounced (Type II)
+
+    ``budget`` (B) is engineering, not a value: the hard cap on retries, so the loop
+    always terminates. Defaults ship conservative and blocking-off until calibrated.
+    """
+    cfg = load_json(config_path(), {})
+    return {"alpha": float(cfg.get("alpha", 0.02)),
+            "beta": float(cfg.get("beta", 0.15)),
+            "budget": int(cfg.get("gate_budget", 2))}
+
+
 def set_config(**kwargs) -> dict:
     cfg = load_json(config_path(), {})
     cfg.update({k: v for k, v in kwargs.items() if v is not None})

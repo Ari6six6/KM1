@@ -33,6 +33,8 @@ HELP = f"""{ui.bold('Commands')}
   {ui.cyan('/watch')} <brief> <every>   a recurring order (e.g. 6h) · {ui.cyan('/watches')} · {ui.cyan('/unwatch')} <id>
   {ui.cyan('/recall')} <query>     what the realm remembers from its past work
   {ui.cyan('/bench')} run|list|pin   the benchmark suite — the judge the Forge must satisfy
+  {ui.cyan('/calibrate')} [kind]   measure the Gate on the poison corpus → arm or leave advisory
+  {ui.cyan('/gate')}             every measuring stick's state: armed/advisory, D · θ · power
   {ui.cyan('/forge')} once|log     one quarantined self-improvement, judged by the benchmark
   {ui.cyan('/light')} · {ui.cyan('/dark')}      open a day · close it (fold the day, then dream)
   {ui.cyan('/report')}           the morning page: work, cost, forge verdicts, the dream
@@ -339,6 +341,49 @@ def _cmd_bench(project, argv: list) -> int:
     for row in result["breakdown"]:
         mark = ui.green("✓") if row["score"] >= 0.999 else ui.yellow(f"{row['score']:.2f}")
         print(f"    {mark}  {ui.cyan(row['id']):24} {ui.dim(row['kind'])}")
+    return 0
+
+
+def _cmd_calibrate(project, argv: list) -> int:
+    """`calibrate [kind …]` — measure the Gate against the poisoned fixture corpus:
+    D, θ_α, power, and whether the numbers license it to block. One event per kind."""
+    from mor import calibrate
+    kinds = [a for a in argv if a in ("research", "build", "fetch")] or None
+    events = calibrate.calibrate(project, kinds)
+    for e in events:
+        if e.get("error"):
+            print(ui.yellow(f"  {e['order_kind'] if 'order_kind' in e else e['kind']}: "
+                            f"{e['error']}"))
+            continue
+        mark = ui.green("armed") if e["gate"] == "armed" else ui.yellow("advisory")
+        print(f"  {ui.cyan(e['order_kind']):10} {mark}  "
+              + ui.dim(f"D={e['D']:.2f} θ={e['theta']:.2f} power={e['power_at_theta']:.2f} "
+                       f"n_poison={e['n_poison']} (α={e['alpha']} β={e['beta']})"))
+    return 0
+
+
+def _cmd_gate(project) -> int:
+    """`gate` — the state of every measuring stick: armed or advisory, and the
+    numbers that license it. Cat-grade honest — an armed gate can always point at
+    the calibration behind it."""
+    from mor.config import gate_params, load_json
+    p = gate_params()
+    print(ui.dim(f"  knobs: α={p['alpha']} (acceptable-lie) · β={p['beta']} "
+                 f"(retry-tax) · B={p['budget']} (attempts)"))
+    data = load_json(project.root / "realm" / "calibration.json", {})
+    if not data:
+        print(ui.dim("  no calibration yet — `mor calibrate`. Until then every kind "
+                     "runs advisory: scored and flagged, never blocked."))
+        return 0
+    for kind in ("research", "build", "fetch"):
+        cal = data.get(kind)
+        if not cal:
+            print(f"  {ui.cyan(kind):10} {ui.dim('advisory')}  " + ui.dim("(no corpus)"))
+            continue
+        mark = ui.green("armed") if cal.get("gate") == "armed" else ui.yellow("advisory")
+        print(f"  {ui.cyan(kind):10} {mark}  "
+              + ui.dim(f"D={cal.get('D', 0):.2f} θ={cal.get('theta', 0):.2f} "
+                       f"power={cal.get('power', 0):.2f} n_poison={cal.get('n_poison', 0)}"))
     return 0
 
 
@@ -679,14 +724,17 @@ def _config_from_args(argv: list) -> int:
     updates, i = {}, 0
     flags = {"--base-url": "base_url", "--model": "model", "--api-key": "api_key",
              "--max-tokens": "max_tokens", "--temperature": "temperature",
-             "--shell": "shell", "--shell-net": "shell_net", "--web": "web"}
+             "--shell": "shell", "--shell-net": "shell_net", "--web": "web",
+             "--alpha": "alpha", "--beta": "beta", "--gate-budget": "gate_budget"}
     while i < len(argv):
         a = argv[i]
         if a in flags and i + 1 < len(argv):
             val = argv[i + 1]
             if a == "--max-tokens":
                 val = int(val)
-            elif a == "--temperature":
+            elif a == "--gate-budget":
+                val = int(val)
+            elif a in ("--temperature", "--alpha", "--beta"):
                 val = float(val)
             elif a == "--shell" and val not in ("off", "container", "host"):
                 print(ui.yellow("  --shell must be off, container, or host"))
@@ -739,6 +787,10 @@ def _dispatch(session: Session, raw: str) -> bool:
         _cmd_recall(project, rest)
     elif cmd == "bench":
         _cmd_bench(project, rest.split())
+    elif cmd == "calibrate":
+        _cmd_calibrate(project, rest.split())
+    elif cmd == "gate":
+        _cmd_gate(project)
     elif cmd == "forge":
         _cmd_forge(project, rest.split())
     elif cmd in ("light", "1"):
@@ -882,6 +934,10 @@ def main(argv=None) -> int:
         return _cmd_recall(load_project(), " ".join(argv[1:]).strip())
     if argv and argv[0] == "bench":
         return _cmd_bench(load_project(), argv[1:])
+    if argv and argv[0] == "calibrate":
+        return _cmd_calibrate(load_project(), argv[1:])
+    if argv and argv[0] == "gate":
+        return _cmd_gate(load_project())
     if argv and argv[0] == "forge":
         return _cmd_forge(load_project(), argv[1:])
     if argv and argv[0] in ("light", "dark"):

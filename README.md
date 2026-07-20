@@ -212,6 +212,28 @@ model attached the flow still runs and delivers, labelled **DEMO**.
 > The order is the unit of work; the shared transcript is the unit of being — the
 > crew's words are the narration, the artifact is the product.
 
+### The Gate — an order that can catch itself being wrong
+
+`verifying` is no longer a file-size check. Each order freezes an acceptance
+**rubric** at `planned` — an event on the log, never a line in the Hall, so the
+crew can't read its own exam — then **scores** the artifact against it: a vector of
+named sub-scores (facts present, forbidden claims absent, sources cited, files
+produced, tests passing) aggregated to one scalar. On a shortfall the order loops
+`verifying → executing`, carrying the failing components forward as coaching, up to
+a bounded retry budget, and **delivers the best attempt** (never a regression); on
+exhaustion it fails *with* the best score and the critique — a stop with a reason,
+not a graveyard.
+
+The gate only *blocks* where it has earned the right to. `mor calibrate` scores a
+corpus of known-good and known-poisoned reports (`bench/fixtures/`) to measure the
+critic's discrimination **D** and place the cut **θ** — Neyman–Pearson, at the
+(1−α) quantile of poison, licensed only if the true-accept power holds at 1−β. Two
+realm-wide knobs are the Master's to turn: **α**, the acceptable-lie rate, and
+**β**, the acceptable retry-tax. With no calibration behind a kind (offline, or one
+whose fixtures aren't written yet) the gate runs **advisory** — it scores and
+flags, but delivers as before, so the DEMO promise holds. `mor gate` shows every
+measuring stick's state.
+
 ### Headless — the daemon
 
 A REPL is a session; a daemon is a presence. `mored` owns the realm and runs
@@ -449,6 +471,8 @@ the same surface.
 | `mor light` · `mor dark` | open a day (post the Chant) · close it (fold Chant + walls, then dream) |
 | `mor report` | the morning page: orders, cost, forge verdict/JUICE, the dream's questions |
 | `mor bench run\|list\|pin` | the benchmark suite — the judge the Forge must satisfy |
+| `mor calibrate [kind]` | measure the Gate on the poison corpus → arm it or leave it advisory |
+| `mor gate` | every measuring stick's state: armed/advisory, D · θ · power · n |
 | `mor forge once\|log` | one quarantined self-improvement, judged by the benchmark |
 | `mor cathedral` | render the realm as one self-contained page (also served at `/cathedral`) |
 

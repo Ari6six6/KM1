@@ -1,0 +1,29 @@
+{
+  "topic": "which python http libraries are async, which are sync-only, with a source",
+  "checks": [
+    {
+      "type": "required_fact",
+      "value": "httpx"
+    },
+    {
+      "type": "required_fact",
+      "value": "aiohttp"
+    },
+    {
+      "type": "required_fact",
+      "value": "async"
+    },
+    {
+      "type": "required_fact",
+      "value": "sync"
+    },
+    {
+      "type": "citation_substring",
+      "value": "://"
+    },
+    {
+      "type": "forbidden_claim",
+      "value": "requests supports async"
+    }
+  ]
+}

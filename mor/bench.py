@@ -110,44 +110,73 @@ def load_tasks() -> list:
     return tasks
 
 
+# -- the check library (one grader, shared) ---------------------------------
+# The benchmark scores a scripted fixture; the Forge scores a mutant; the live
+# Gate (fitness.py) scores real work. All three must grade on the *same* curve or
+# the realm grades itself on a lie. So the "how to grade" primitives live here as
+# pure ``(artifact, wanted) → subscore ∈ [0,1]`` functions, and every judge imports
+# them. bench keeps its runners; fitness borrows its eyes.
+def check_required(report: str, wanted: list) -> float:
+    """Fraction of the wanted substrings present (case-folded). 1.0 when nothing
+    is required — there is nothing to miss."""
+    low = (report or "").lower()
+    wanted = [str(w).lower() for w in (wanted or [])]
+    if not wanted:
+        return 1.0
+    return sum(1 for w in wanted if w in low) / len(wanted)
+
+
+def check_forbidden_absent(report: str, forbidden: list) -> float:
+    """1.0 if no forbidden claim appears, 0.0 if any does — a hard gate, not a
+    fraction: one planted lie present is a failed report."""
+    low = (report or "").lower()
+    return 0.0 if any(str(f).lower() in low for f in (forbidden or [])) else 1.0
+
+
+def check_files_present(workspace, paths: list) -> float:
+    if not paths or workspace is None:
+        return 1.0
+    return sum(1 for f in paths if (workspace / f).exists()) / len(paths)
+
+
+def check_test_passes(workspace, test_file: "str | None") -> float:
+    """Executable truth: run the test file, 1.0 iff it exits clean. Missing test →
+    0.0 (a build order that names a test must produce a passing one)."""
+    if not test_file or workspace is None:
+        return 1.0
+    if not (workspace / test_file).exists():
+        return 0.0
+    try:
+        r = subprocess.run([sys.executable, test_file], cwd=str(workspace),
+                           capture_output=True, timeout=30)
+        return 1.0 if r.returncode == 0 else 0.0
+    except (OSError, subprocess.TimeoutExpired):
+        return 0.0
+
+
 def _score_research(task: dict, order, project, contexts) -> float:
     report = ""
     for p in order.artifacts():
         if p.name == "report.md":
-            report = p.read_text().lower()
+            report = p.read_text()
     check = task.get("check", {})
-    facts = [f.lower() for f in check.get("required_facts", [])]
-    sources = [s.lower() for s in check.get("cite_sources", [])]
-    forbidden = [f.lower() for f in check.get("forbidden_facts", [])]
-    if any(f in report for f in forbidden):
+    if check_forbidden_absent(report, check.get("forbidden_facts", [])) == 0.0:
         return 0.0
-    wanted = facts + sources
+    wanted = list(check.get("required_facts", [])) + list(check.get("cite_sources", []))
     if not wanted:
-        return 1.0 if report else 0.0
-    hit = sum(1 for w in wanted if w in report)
-    return hit / len(wanted)
+        return 1.0 if report.strip() else 0.0
+    return check_required(report, wanted)
 
 
 def _score_build(task: dict, order, project, contexts) -> float:
     ws = project.workspace
     check = task.get("check", {})
-    files = check.get("files", [])
-    present = sum(1 for f in files if (ws / f).exists())
-    file_score = present / len(files) if files else 1.0
+    file_score = check_files_present(ws, check.get("files", []))
     test_file = check.get("test_file")
-    test_ok = 1.0
-    if test_file:
-        if not (ws / test_file).exists():
-            test_ok = 0.0
-        else:
-            try:
-                r = subprocess.run([sys.executable, test_file], cwd=str(ws),
-                                   capture_output=True, timeout=30)
-                test_ok = 1.0 if r.returncode == 0 else 0.0
-            except (OSError, subprocess.TimeoutExpired):
-                test_ok = 0.0
+    if not test_file:
+        return file_score
     # executable truth dominates; file presence is the tie-breaker
-    return round(0.3 * file_score + 0.7 * test_ok, 4) if test_file else file_score
+    return round(0.3 * file_score + 0.7 * check_test_passes(ws, test_file), 4)
 
 
 def _score_recall(task: dict, order, project, contexts) -> float:

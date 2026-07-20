@@ -174,26 +174,81 @@ def _render_report(order: Order, entries: list, mode: str) -> str:
 
 def execute_order(project, order: Order, *, client=None, echo: bool = True,
                   on_turn=None) -> Order:
-    """Run an already-created order through the Hall, leaving an artifact. Every
-    transition is an event, so the order's whole life is on disk the instant it
-    happens — a crash mid-order leaves it recoverably at its last state."""
+    """Run an order through the Hall as a **bounded gate loop**, leaving the best
+    artifact of up to ``B+1`` attempts. Every transition is an event, so the whole
+    life is on disk the instant it happens — a crash mid-loop resumes at its last
+    recorded attempt.
+
+    The cycle: freeze a rubric at ``planned`` (an event, never a spoken line — the
+    two walls), then work → score → decide. On a measured shortfall with an armed
+    gate, loop back to ``executing`` carrying the failing components forward; on
+    accept (or an advisory read) deliver the **argmax** attempt; on exhaustion fail
+    with the best score and the critique — a stop with a reason, not a graveyard.
+    Offline and on uncalibrated kinds the gate is advisory: it scores and flags but
+    never blocks, so a fresh clone still delivers, labelled DEMO."""
     from mor.session import Session   # local import: session imports config only
+    from mor import fitness
+    from mor.config import gate_params
 
     try:
-        order.record("planned", plan=f"run the crew on the brief and deliver {order.kind}")
-        order.record("executing")
-        session = Session(project, echo=echo, client=client,
-                          transcript_path=order.hall_path, on_turn=on_turn)
-        session.run_task(_task_for(order.kind, order.brief))
-        entries = session.transcript.entries()
+        budget = gate_params()["budget"]
+        rubric = fitness.make_rubric(order.kind, order.brief, client=client)
+        order.record("planned", plan=(f"gate the {order.kind}: work, score against a "
+                                      f"frozen rubric, keep the best of ≤{budget + 1} attempts"))
+        # Wall 1 (temporal): the rubric is an event at seq k, before any work.
+        # Wall 2 (contextual): it rides order.record — the event log — never the
+        # Transcript, so no face reads its own exam. `mor` proves both by `cat`.
+        rubric_evt = order.record("rubric", order_kind=order.kind,
+                                  authored_by=rubric["authored_by"], checks=rubric["checks"])
 
-        order.record("verifying")
-        report = order.dir / "report.md"
-        report.write_text(_render_report(order, entries, session.mode))
-        if report.stat().st_size > 0:
-            order.record("delivered", artifact="report.md", mode=session.mode)
+        best = None            # (scalar, report_text, mode, attempt, fit)
+        carry = None           # failing components + critique from the last attempt
+        for attempt in range(budget + 1):
+            order.record("executing", attempt=attempt)
+            session = Session(project, echo=echo, client=client,
+                              transcript_path=order.hall_path, on_turn=on_turn)
+            task = _task_for(order.kind, order.brief)
+            if carry:          # coaching after a scored failure — the near side of Wall 2
+                task = task + "\n\n" + fitness.coaching(carry)
+            session.run_task(task)
+            entries = session.transcript.entries()
+            report_text = _render_report(order, entries, session.mode)
+
+            adir = order.dir / "attempts" / str(attempt)
+            adir.mkdir(parents=True, exist_ok=True)
+            (adir / "report.md").write_text(report_text)
+
+            order.record("verifying", attempt=attempt)
+            fit = fitness.score(order.kind, order.brief, report_text,
+                                project.workspace, rubric, client=client)
+            order.record("fitness", attempt=attempt, rubric_seq=rubric_evt["seq"],
+                         vector=fit["vector"], weights=fit["weights"], scalar=fit["scalar"],
+                         failing=fit["failing"], critique=fit["critique"])
+
+            if best is None or fit["scalar"] > best[0]:
+                best = (fit["scalar"], report_text, session.mode, attempt, fit)
+
+            verdict, _theta = fitness.gate(fit["scalar"], order.kind, project)
+            if verdict != "reject":         # accept or advisory — stop, keep this
+                break
+            if attempt < budget:            # a licensed shortfall — coach and retry
+                carry = {"failing": fit["failing"], "critique": fit["critique"]}
+                order.record("retry", attempt=attempt + 1, carry=carry)
+
+        # Terminal — keep-best: the trajectory may thrash; the deliverable can't.
+        best_scalar, best_text, best_mode, best_attempt, best_fit = best
+        (order.dir / "report.md").write_text(best_text)
+        verdict, theta = fitness.gate(best_scalar, order.kind, project)
+        if verdict == "reject":
+            order.record("failed",
+                         reason=f"below the gate — best {best_scalar:.2f} < θ {theta:.2f} "
+                                f"after {budget + 1} attempts",
+                         best_attempt=best_attempt, best_score=round(best_scalar, 4),
+                         critique=best_fit["critique"])
         else:
-            order.record("failed", reason="empty report")
+            order.record("delivered", artifact="report.md", mode=best_mode,
+                         chosen_attempt=best_attempt, score=round(best_scalar, 4),
+                         gate=("advisory" if theta is None else "armed"))
     except Exception as e:  # noqa: BLE001 — a bad turn fails the order, never the daemon
         order.record("failed", reason=f"{type(e).__name__}: {str(e)[:200]}")
     return order
