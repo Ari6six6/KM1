@@ -236,9 +236,24 @@ def _install_llama(cargs: list, log) -> None:
         raise ProvisionError(f"llama.cpp build failed: {err.strip()[-500:]}")
 
 
+def _launch_prefix() -> str:
+    """The env that rides the launch command. HF_TOKEN (P2-3) is passed through when
+    set, so a gated repo serves instead of failing with an opaque download error."""
+    import os
+    import shlex
+    parts = ["HF_HUB_ENABLE_HF_TRANSFER=1"]
+    tok = os.environ.get("HF_TOKEN")
+    if tok:
+        parts.insert(0, f"HF_TOKEN={shlex.quote(tok)}")
+    return " ".join(parts) + " "
+
+
 def server_running(cargs: list) -> bool:
-    rc, out, _ = run(cargs, "cat ~/vllm.pid 2>/dev/null && kill -0 $(cat ~/vllm.pid) "
-                            "2>/dev/null && echo RUNNING")
+    # pid-alive AND cmdline-match (P2-2): a reused pid after a box reboot (a stray
+    # `sleep` inheriting the old pid) must not read as "already serving".
+    rc, out, _ = run(cargs, "P=$(cat ~/vllm.pid 2>/dev/null) && kill -0 $P 2>/dev/null && "
+                            "tr '\\0' ' ' < /proc/$P/cmdline 2>/dev/null | "
+                            "grep -qE 'vllm|llama-server' && echo RUNNING")
     return "RUNNING" in out
 
 
@@ -261,7 +276,9 @@ def _clear_stale_and_check_port(cargs: list, port: int) -> str:
     another service on the box (vast.ai often squats on 8080): return what holds
     it so the caller can fail with a clear 'use a different port' message rather
     than a silent, forever-failing bind. Returns '' when the port is free."""
-    run(cargs, "pkill -9 -f llama-server 2>/dev/null; sleep 1", timeout=20)
+    # kill both llama-server and vllm-serve orphans (P2-2) — either can squat the port
+    run(cargs, "pkill -9 -f llama-server 2>/dev/null; pkill -9 -f 'vllm serve' "
+               "2>/dev/null; sleep 1", timeout=20)
     rc, out, _ = run(cargs, f"ss -tln 2>/dev/null | grep ':{port} ' || true", timeout=20)
     return out.strip()
 
@@ -308,7 +325,7 @@ def launch(cargs: list, spec: ModelSpec, tp, max_len, util, port: int, log,
     # if the linker can't find them it dies on exec, silently, before it opens a
     # socket or a download — which looks exactly like a hung download bar.
     env_setup = _CUDA_ENV if spec.server == "llama_cpp" else ""
-    rc, _, err = run(cargs, env_setup + "HF_HUB_ENABLE_HF_TRANSFER=1 nohup " + cmd +
+    rc, _, err = run(cargs, env_setup + _launch_prefix() + "nohup " + cmd +
                      " > ~/vllm.log 2>&1 & echo $! > ~/vllm.pid", timeout=60)
     if rc != 0:
         raise ProvisionError(f"launch failed: {err.strip()[-400:]}")

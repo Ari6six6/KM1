@@ -50,3 +50,12 @@ def test_success(monkeypatch):
     _run(monkeypatch, 0, "MOR_OK\n", "")
     ok, why, transient = gpu.check_connection(["root@x"])
     assert ok is True and why == "ok" and transient is False
+
+
+def test_launch_prefix_passes_hf_token_when_set(monkeypatch):
+    """P2-3 — a gated repo (like the GLM row) serves when HF_TOKEN is set."""
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    assert "HF_TOKEN" not in gpu._launch_prefix()
+    assert "HF_HUB_ENABLE_HF_TRANSFER=1" in gpu._launch_prefix()
+    monkeypatch.setenv("HF_TOKEN", "hf_secret123")
+    assert "HF_TOKEN=hf_secret123" in gpu._launch_prefix()
