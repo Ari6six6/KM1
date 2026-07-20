@@ -139,6 +139,16 @@ def todays_hall(project) -> list:
         for hp in sorted(orders.glob("*/hall.jsonl")):
             if hp.parent.name.startswith(stamp):
                 entries += _read_jsonl(hp)
+    if entries:
+        return entries
+    # After midnight a day that just closed reads empty and the cathedral would
+    # show a quiet hall though a day just spoke. Fall back to the most recent hall
+    # on disk — the last day that spoke, not today-or-nothing (V1 cathedral notes).
+    if orders.exists():
+        halls = sorted((p for p in orders.glob("*/hall.jsonl")),
+                       key=lambda p: p.stat().st_mtime, reverse=True)
+        if halls:
+            return _read_jsonl(halls[0])
     return entries
 
 

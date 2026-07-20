@@ -3,8 +3,10 @@ Hall. The acceptance: replay produces the same Chant and walls, byte for byte.""
 
 from __future__ import annotations
 
+import json
+
 from mor.day import (compose_chant, compose_walls, close_day, open_day,
-                     last_chant, walls_for, day_number)
+                     last_chant, walls_for, day_number, todays_hall)
 from mor.session import Session
 from mor.llm import ScriptClient
 
@@ -16,6 +18,18 @@ DAY = [
     {"speaker": "researcher", "addressee": "lead", "text": "The north road is washed out past mile 7."},
     {"speaker": "lead", "addressee": "operator", "text": "The road is out; take Kestrel Pass."},
 ]
+
+
+def test_todays_hall_falls_back_to_the_last_day_that_spoke(project):
+    # a hall from a prior day (not today's stamp) — todays_hall would read empty
+    # after midnight; it must show the last day that spoke, not nothing (V1).
+    d = project.root / "orders" / "20250101-000000-old-research"
+    d.mkdir(parents=True)
+    (d / "hall.jsonl").write_text(
+        json.dumps({"speaker": "lead", "addressee": "operator",
+                    "text": "yesterday's finding"}) + "\n")
+    hall = todays_hall(project)
+    assert hall and hall[-1]["text"] == "yesterday's finding"
 
 
 def test_chant_is_a_deterministic_projection():

@@ -22,6 +22,7 @@ model) it still delivers, labelled DEMO, so the whole flow moves on a fresh clon
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -214,8 +215,18 @@ def execute_order(project, order: Order, *, client=None, echo: bool = True,
         carry = None           # failing components + critique from the last attempt
         for attempt in range(budget + 1):
             order.record("executing", attempt=attempt)
+
+            def _record_tool(agent, tool, args, obs, _a=attempt):
+                # The hall records words; this records hands — every tool call as an
+                # event, so what the crew actually *did* is cat-able, not just said.
+                order.record("tool", attempt=_a, agent=agent, tool=tool,
+                             args_hash=hashlib.sha256((args or "").encode()).hexdigest()[:12],
+                             ok=not (obs or "").startswith("ERROR"),
+                             result_head=((obs or "").splitlines() or [""])[0][:120])
+
             session = Session(project, echo=echo, client=client,
-                              transcript_path=order.hall_path, on_turn=on_turn)
+                              transcript_path=order.hall_path, on_turn=on_turn,
+                              on_tool=_record_tool)
             task = _task_for(order.kind, order.brief)
             if carry:          # coaching after a scored failure — the near side of Wall 2
                 task = task + "\n\n" + fitness.coaching(carry)

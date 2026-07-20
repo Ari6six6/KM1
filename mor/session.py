@@ -54,7 +54,7 @@ def next_speaker(speaker: str, text: str, names: list, lead: str) -> str:
 
 class Session:
     def __init__(self, project=None, *, echo: bool = True, client=None,
-                 transcript_path=None, on_turn=None):
+                 transcript_path=None, on_turn=None, on_tool=None):
         self.project = project or load_project()
         self.crew = load_crew(self.project)
         self.names = [a.name for a in self.crew]
@@ -76,6 +76,8 @@ class Session:
         self.transcript = Transcript(transcript_path or self.project.session_path(stamp),
                                      echo=echo)
         self.on_turn = on_turn
+        # (agent, tool, args_json, observation) -> None — records who did what.
+        self.on_tool = on_tool
         self.tainted: list = []
 
     def _pick_mind(self, echo: bool):
@@ -133,7 +135,9 @@ class Session:
         ctx = ToolContext(workspace=self.project.workspace, project=self.project,
                           can_egress=agent.can_egress, web_open=self.web_open,
                           shell_mode=self.shell_mode, shell_net=self.shell_net,
-                          tainted=self.tainted)
+                          tainted=self.tainted,
+                          on_tool=((lambda tool, args, obs: self.on_tool(name, tool, args, obs))
+                                   if self.on_tool else None))
         tools = build_tools(agent.tools, ctx)
         user = self._task(name, heard_from, heard, opening=opening, close=close)
         # What the realm remembers from earlier work, relevant to this turn — wired

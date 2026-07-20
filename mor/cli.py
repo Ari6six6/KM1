@@ -466,6 +466,28 @@ def _cmd_cathedral(project) -> int:
     return 0
 
 
+def _unrated_serving(project) -> list:
+    """Boxes serving a mind at rate 0.0 — a real invoice reading $0.00. The field
+    watched exactly this all V1 evening and said nothing; $0.00 must never be a
+    silent reading (Charge 5)."""
+    from mor import mind
+    from mor.field import Field
+    out = [b.get("label") for b in mind.boxes(project)
+           if b.get("state") == "serving" and not b.get("rate")]
+    s = Field(project).summary()
+    if s["state"] == "serving" and not s["rate_per_hour"] and s.get("instance"):
+        out.append(s["instance"])
+    return [b for b in out if b]
+
+
+def _warn_unrated(project) -> None:
+    unrated = _unrated_serving(project)
+    if unrated:
+        print(ui.yellow(f"  ⚠ UNRATED serving box(es): {', '.join(unrated)} — reads "
+                        "$0.00/hr, but real money may be burning. "
+                        "Rate it: mor field rate <box> <$/hr>"))
+
+
 def _cmd_report(project) -> int:
     """report — the morning page: yesterday's work, cost, forge verdicts, the dream."""
     from mor.field import Field
@@ -480,6 +502,7 @@ def _cmd_report(project) -> int:
             print(f"    {ui.cyan(o.id[-12:])}  {ui.dim(o.state)}  {o.brief[:44]}")
     s = Field(project).summary()
     print(ui.dim(f"  field: {s['state']} · spent ${s['cost']:.2f} so far"))
+    _warn_unrated(project)
     verdicts = events(project, "forge.verdict")
     if verdicts:
         last = verdicts[-1]
@@ -655,6 +678,7 @@ def _cmd_field(project, rest: str = "") -> int:
         print(ui.dim(f"    rented box {s['instance']} · ${s['rate_per_hour']:.2f}/hr · "
                      f"spent ${s['cost']:.2f} so far"))
     _print_registry(project)
+    _warn_unrated(project)
     return 0
 
 

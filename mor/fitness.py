@@ -31,6 +31,7 @@ fixture corpus. This file grades; that one earns the right to block.
 
 from __future__ import annotations
 
+import json
 import re
 
 from mor import bench
@@ -75,29 +76,105 @@ def make_rubric(kind: str, brief: str, client=None, workspace=None) -> dict:
     runs — the untouchable judge, ported from the Forge to the order via the event
     log. The worker's job is to make its code pass an exam it cannot edit, because
     the exam is restored from this frozen copy before it is run (see ``score``)."""
-    checks: list = []
     if kind == "research":
-        for term in _salient(brief):
-            checks.append({"type": "required_fact", "value": term})
-        if re.search(r"\b(cite|source|sources|reference)\b", brief.lower()):
-            checks.append({"type": "citation_substring", "value": "http"})
-    elif kind == "build" and workspace is not None:
+        planned = _planner_research(brief, client) if _is_served(client) else None
+        if planned:
+            return {"authored_by": "planner", "checks": planned}
+        return {"authored_by": "template", "checks": _template_research(brief)}
+    if kind == "build" and workspace is not None:
         acc = workspace / _ACCEPTANCE_FILE
         if acc.exists():
-            checks.append({"type": "acceptance_test", "value": _ACCEPTANCE_FILE,
-                           "content": acc.read_text()})
-    elif kind == "fetch":
-        checks.append({"type": "nonempty_report", "value": ""})
-    # With no checks (a build with no acceptance test, say) the read is advisory —
-    # it scores and flags but never blocks, rather than grade on a lie.
-    return {"authored_by": "template", "checks": checks}
+            return {"authored_by": "operator", "checks": [
+                {"type": "acceptance_test", "value": _ACCEPTANCE_FILE,
+                 "content": acc.read_text()}]}
+    if kind == "fetch":
+        return {"authored_by": "template", "checks": [{"type": "nonempty_report", "value": ""}]}
+    # No checks (a build with no acceptance test, say) → an advisory read: it scores
+    # and flags but never blocks, rather than grade on a lie.
+    return {"authored_by": "template", "checks": []}
+
+
+def _template_research(brief: str) -> list:
+    """The offline fallback rubric — brief-salient terms plus a citation check when
+    the brief asks for sources. Crude by design; a served planner authors the real
+    one (below)."""
+    checks = [{"type": "required_fact", "value": t} for t in _salient(brief)]
+    if re.search(r"\b(cite|cited|source|sources|sourced|reference)\b", brief.lower()):
+        checks.append({"type": "citation"})
+    return checks
+
+
+def _is_served(client) -> bool:
+    """True only for a real served model — the planner rubric is a model act. Offline
+    and scripted stand-ins fall to the template, and never have a turn consumed."""
+    if client is None:
+        return False
+    from mor.llm import OpenAIClient
+    return isinstance(client, OpenAIClient)
+
+
+def _first_json_object(text: str):
+    """The first balanced ``{...}`` in text, parsed — models wrap JSON in prose."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except ValueError:
+                    return None
+    return None
+
+
+def _planner_research(brief: str, client) -> "list | None":
+    """The planner authors the acceptance rubric at ``planned``, before the work —
+    the checks a correct answer must satisfy, as JSON, judging the brief rather than
+    answering it. Recorded as an event, never spoken into the Hall (Wall 2). Returns
+    a checks list, or None on unusable output (the caller falls to the template).
+
+    This is the fix for V1's blank/keyword rubrics (Charge 1): the gate's exam is
+    written by a mind that read the brief, not tokenized from its words."""
+    prompt = (
+        "You are setting the ACCEPTANCE RUBRIC for a research task, BEFORE any work is "
+        "done. Read the brief and output ONLY a JSON object with keys:\n"
+        '  "required_facts": [up to 5 specific claims or named entities a correct, '
+        "complete answer MUST contain],\n"
+        '  "forbidden_claims": [plausible but FALSE statements a wrong answer might make],\n'
+        '  "require_citation": true if the answer should cite a source, else false.\n'
+        "Judge the answer; do not answer it. Brief: " + brief)
+    try:
+        res = client.chat([{"role": "system", "content": "You author strict acceptance "
+                            "rubrics as JSON, and nothing else."},
+                           {"role": "user", "content": prompt}])
+    except Exception:  # noqa: BLE001 — a flaky planner falls back, never crashes the order
+        return None
+    data = _first_json_object(res.content or "")
+    if not isinstance(data, dict):
+        return None
+    checks = []
+    for f in (data.get("required_facts") or [])[:5]:
+        if isinstance(f, str) and f.strip():
+            checks.append({"type": "required_fact", "value": f.strip()})
+    for f in (data.get("forbidden_claims") or [])[:5]:
+        if isinstance(f, str) and f.strip():
+            checks.append({"type": "forbidden_claim", "value": f.strip()})
+    if data.get("require_citation"):
+        checks.append({"type": "citation"})
+    return checks or None
 
 
 # -- scoring: the vector, then the scalar ------------------------------------
 _DETERMINISTIC = {
     "required_fact": "required_facts",
     "forbidden_claim": "forbidden_absent",
-    "citation_substring": "citations",
+    "citation_substring": "citations",   # legacy: a literal substring must appear
+    "citation": "citations",             # a URL or a bare domain is present
     "files_present": "files_present",
     "test_passes": "tests_pass",
     "nonempty_report": "nonempty",
@@ -142,7 +219,8 @@ def score(kind: str, brief: str, report: str, workspace, rubric: dict,
         elif name == "forbidden_absent":
             vector[name] = bench.check_forbidden_absent(report, values)
         elif name == "citations":
-            vector[name] = bench.check_required(report, values)
+            vector[name] = (bench.check_has_citation(report) if ctype == "citation"
+                            else bench.check_required(report, values))
         elif name == "files_present":
             paths = [p for v in values for p in (v if isinstance(v, list) else [v]) if p]
             vector[name] = bench.check_files_present(workspace, paths)

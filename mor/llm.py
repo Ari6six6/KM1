@@ -141,6 +141,45 @@ def _finish(parts: list, tools: dict, cancelled: bool) -> ChatResult:
                       tool_calls=calls, cancelled=cancelled)
 
 
+_PROSE_TOOLCALL = re.compile(r"<tool_call>\s*(.*?)</tool_call>", re.DOTALL | re.IGNORECASE)
+_ARG_KV = re.compile(
+    r"<arg_key>\s*(.*?)\s*</arg_key>\s*<arg_value>\s*(.*?)\s*</arg_value>", re.DOTALL)
+
+
+def parse_prose_tool_calls(text: str):
+    """Rescue tool calls a model wrote as **prose** instead of emitting them
+    structurally — the GLM/Hermes XML flavor, either
+
+        <tool_call>name<arg_key>path</arg_key><arg_value>x.py</arg_value></tool_call>
+
+    or a JSON body between the tags. Returns ``(cleaned_text, [ToolCall])``. Without
+    this a model that narrates its call ends its turn on an unrun promise, and a
+    delivery closes on work that never happened (V1, Charge 2)."""
+    if not text or "<tool_call>" not in text.lower():
+        return text, []
+    calls = []
+    for i, block in enumerate(_PROSE_TOOLCALL.findall(text)):
+        body = block.strip()
+        name, args = None, {}
+        if body.startswith("{"):
+            try:
+                d = json.loads(body)
+                name = d.get("name") or d.get("tool")
+                args = d.get("arguments") or d.get("args") or {}
+            except (ValueError, TypeError):
+                name = None
+        else:
+            m = re.match(r"([A-Za-z_][\w./-]*)", body)
+            if m:
+                name = m.group(1)
+                for k, v in _ARG_KV.findall(body):
+                    args[k.strip()] = v.strip()
+        if name:
+            calls.append(ToolCall(f"rescue-{i}", name,
+                                  json.dumps(args if isinstance(args, dict) else {})))
+    return _PROSE_TOOLCALL.sub("", text).strip(), calls
+
+
 def consume_stream(lines, on_token=None, cancel: "Cancel | None" = None) -> ChatResult:
     """Read an OpenAI-compatible SSE stream into a ChatResult, emitting each text
     delta through ``on_token`` as it lands. Stops early and marks the result

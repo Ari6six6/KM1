@@ -33,11 +33,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+_CITATION = re.compile(
+    r"https?://|www\.\w|\b[\w-]+\.(?:com|org|net|io|edu|gov|dev|ai|co|uk)\b", re.IGNORECASE)
 
 
 def repo_root() -> Path:
@@ -131,6 +135,13 @@ def check_forbidden_absent(report: str, forbidden: list) -> float:
     fraction: one planted lie present is a failed report."""
     low = (report or "").lower()
     return 0.0 if any(str(f).lower() in low for f in (forbidden or [])) else 1.0
+
+
+def check_has_citation(report: str) -> float:
+    """1.0 if the text cites a source — a URL *or* a bare domain — else 0.0. A crew
+    that cites ``news.ycombinator.com`` is cited; the check no longer demands the
+    literal string ``http`` and score an honest answer 0.3 for it (V1, Charge 1)."""
+    return 1.0 if _CITATION.search(report or "") else 0.0
 
 
 def check_files_present(workspace, paths: list) -> float:

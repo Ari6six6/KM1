@@ -19,6 +19,11 @@ COPY pyproject.toml README.md ./
 COPY mor ./mor
 RUN pip install --no-cache-dir .
 
+# The realm itself is stdlib-only, but a build order's crew writes and runs tests
+# in this sandbox — give it pytest so "run the test" doesn't die on a missing
+# module and fall back to improvised unittest (V1, Charge 3b).
+RUN pip install --no-cache-dir pytest
+
 # state lives here; mount a volume to persist projects/config across runs
 ENV MOR_HOME=/root/.mor
 ENTRYPOINT ["mor"]

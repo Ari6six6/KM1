@@ -14,6 +14,19 @@ def _provider(project):
     return FakeProvider(project.root / "field" / "fp.json")
 
 
+def test_unrated_serving_box_is_flagged_not_silent(project):
+    # V1 Charge 5: a serving mind at rate 0.0 is a real invoice reading $0.00 —
+    # the field must name it, never read $0.00 silently.
+    from mor import mind
+    from mor.cli import _unrated_serving
+    assert _unrated_serving(project) == []
+    mind.register_box(project, label="byo-box-1", base_url="http://x:8080/v1",
+                      model="glm-4.7-flash")   # rate defaults to 0.0
+    assert "byo-box-1" in _unrated_serving(project)
+    mind.set_rate(project, "byo-box-1", 1.5)
+    assert _unrated_serving(project) == []
+
+
 def test_fake_provider_rent_is_idempotent_by_key(project):
     p = _provider(project)
     a = p.rent(SPEC, key="k1")

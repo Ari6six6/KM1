@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import json
 
-from mor import fitness
+from mor import bench, fitness
 from mor.config import save_json
-from mor.llm import Client, ChatResult, ToolCall
+from mor.llm import Client, ChatResult, OpenAIClient, ScriptClient, ToolCall
 from mor.order import run_order, OrderStore
 
 
@@ -15,7 +15,47 @@ def test_rubric_rides_the_log_not_the_hall():
     r = fitness.make_rubric("research", "top async http libraries, cite a source")
     assert r["authored_by"] == "template"
     types = {c["type"] for c in r["checks"]}
-    assert "required_fact" in types and "citation_substring" in types
+    assert "required_fact" in types and "citation" in types
+
+
+def test_citation_check_accepts_a_bare_domain_not_just_http():
+    # V1 Charge 1: a crew that cited news.ycombinator.com scored 0.3 for lacking the
+    # literal string "http". A domain is a citation.
+    assert bench.check_has_citation("see news.ycombinator.com for the list") == 1.0
+    assert bench.check_has_citation("source: https://python.org") == 1.0
+    assert bench.check_has_citation("i just know it, trust me") == 0.0
+
+
+def test_planner_authors_the_rubric_when_a_model_is_served():
+    # the planner reads the brief and writes real checks — not tokenized keywords.
+    class _Planner(OpenAIClient):
+        def __init__(self):
+            pass
+
+        def chat(self, messages, tools=None):
+            return ChatResult(content='ok, here it is: {"required_facts": ["httpx", '
+                              '"aiohttp"], "forbidden_claims": ["requests is async"], '
+                              '"require_citation": true} — done.')
+
+    r = fitness.make_rubric("research", "async python http libraries", client=_Planner())
+    assert r["authored_by"] == "planner"
+    facts = [c["value"] for c in r["checks"] if c["type"] == "required_fact"]
+    forb = [c["value"] for c in r["checks"] if c["type"] == "forbidden_claim"]
+    assert facts == ["httpx", "aiohttp"] and forb == ["requests is async"]
+    assert any(c["type"] == "citation" for c in r["checks"])
+
+
+def test_planner_falls_back_to_template_on_junk_and_never_for_scripts():
+    class _Junk(OpenAIClient):
+        def __init__(self):
+            pass
+
+        def chat(self, messages, tools=None):
+            return ChatResult(content="i could not produce json")
+
+    assert fitness.make_rubric("research", "x", client=_Junk())["authored_by"] == "template"
+    # a scripted/offline client is NOT a served model — its turn is never consumed
+    assert fitness.make_rubric("research", "x", client=ScriptClient([]))["authored_by"] == "template"
 
 
 def test_score_separates_a_clean_report_from_poison():

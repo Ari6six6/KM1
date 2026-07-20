@@ -16,7 +16,7 @@ calls a tool, so the machinery stays exercised with no model attached.
 
 from __future__ import annotations
 
-from mor.llm import MockClient
+from mor.llm import ChatResult, MockClient, parse_prose_tool_calls
 from mor.tools import execute
 
 _REFLECT_AFTER = 2   # act-only steps before we push to think
@@ -68,6 +68,13 @@ def think_and_act(client, *, system: str, user: str, tools: list, ctx,
         if res.cancelled:
             return (res.content or last_text or "(interrupted)").strip(), bool(ctx.tainted)
 
+        # A model that wrote its tool calls as prose (GLM/Hermes XML) gets them
+        # rescued into real calls, so the turn never ends on an unrun promise.
+        if not res.tool_calls and res.content and "<tool_call>" in res.content.lower():
+            cleaned, rescued = parse_prose_tool_calls(res.content)
+            if rescued:
+                res = ChatResult(content=cleaned, tool_calls=rescued)
+
         if not res.tool_calls:
             if (not (res.content or "").strip() and not empty_nudged
                     and step < budget - 1):
@@ -89,6 +96,8 @@ def think_and_act(client, *, system: str, user: str, tools: list, ctx,
         for c in res.tool_calls:
             obs = execute(tools, c, ctx)
             log(f"    · {c.name} → {obs.splitlines()[0][:80] if obs else ''}")
+            if ctx.on_tool:                       # record the crew's hands, cat-ably
+                ctx.on_tool(c.name, c.arguments, obs)
             messages.append({"role": "tool", "tool_call_id": c.id, "content": obs})
 
         act_streak = act_streak + 1 if not (res.content or "").strip() else 0
