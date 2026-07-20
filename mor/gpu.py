@@ -167,9 +167,20 @@ def plan(gpus: list, spec: ModelSpec):
         raise ProvisionError("no GPUs detected on the box (nvidia-smi empty)")
     total_gb = sum(mb for _, mb in gpus) // 1024
     if total_gb < spec.min_total_gb:
+        from mor.models import smaller_quants
+        fits = [s for s in smaller_quants(spec) if s.min_total_gb <= total_gb]
+        if fits:
+            best = fits[-1]   # the highest-quality quant that still fits this box
+            hint = (f"This box holds {best.label.split(' · ')[-1]}: "
+                    f"`gpu model {best.key}` then re-serve (needs ~{best.min_total_gb}GB).")
+        else:
+            smaller = smaller_quants(spec)
+            hint = (f"Even the smallest {spec.served_name} row (`gpu model "
+                    f"{smaller[0].key}`, ~{smaller[0].min_total_gb}GB) won't fit — rent a "
+                    "bigger box." if smaller else "Pick a smaller model or a bigger box.")
         raise ProvisionError(
-            f"only {total_gb}GB total VRAM — {spec.label} needs ~{spec.min_total_gb}GB+. "
-            f"Pick a smaller model with `gpu model <key>`, or rent a bigger box.")
+            f"only {total_gb}GB total VRAM across {len(gpus)} GPU(s) — {spec.label} "
+            f"needs ~{spec.min_total_gb}GB+. {hint}")
     max_len = spec.context_beyond
     for threshold, length in spec.context_tiers:
         if total_gb < threshold:

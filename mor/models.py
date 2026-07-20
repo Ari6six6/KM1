@@ -56,6 +56,36 @@ GLM = ModelSpec(
     gguf_file="GLM-4.7-Flash-Uncensored-HauhauCS-Balanced-FP16.gguf",
 )
 
+GLM_Q4 = ModelSpec(
+    key="glm-q4",
+    label="GLM-4.7-Flash (HauhauCS Balanced, uncensored) · Q4_K_M GGUF",
+    repo="HauhauCS/GLM-4.7-Flash-Uncensored-HauhauCS-Balanced",
+    served_name="glm-4.7-flash",
+    min_total_gb=24,
+    max_model_len=131072,
+    context_tiers=[(28, 16384), (36, 32768), (56, 65536), (96, 98304)],
+    context_beyond=131072,
+    weights_note="first run downloads the ~18GB Q4_K_M GGUF",
+    server="llama_cpp",
+    quantization="gguf",
+    gguf_quant="Q4_K_M",
+)
+
+GLM_Q5 = ModelSpec(
+    key="glm-q5",
+    label="GLM-4.7-Flash (HauhauCS Balanced, uncensored) · Q5_K_M GGUF",
+    repo="HauhauCS/GLM-4.7-Flash-Uncensored-HauhauCS-Balanced",
+    served_name="glm-4.7-flash",
+    min_total_gb=30,
+    max_model_len=131072,
+    context_tiers=[(36, 16384), (44, 32768), (64, 65536), (100, 98304)],
+    context_beyond=131072,
+    weights_note="first run downloads the ~22GB Q5_K_M GGUF",
+    server="llama_cpp",
+    quantization="gguf",
+    gguf_quant="Q5_K_M",
+)
+
 HERMES = ModelSpec(
     key="hermes",
     label="Hermes-4.3-36B (NousResearch) · FP8",
@@ -118,12 +148,22 @@ QWEN_40B = ModelSpec(
 
 CATALOG: dict[str, ModelSpec] = {
     GLM.key: GLM,
+    GLM_Q4.key: GLM_Q4,
+    GLM_Q5.key: GLM_Q5,
     HERMES.key: HERMES,
     QWEN_OFFICIAL.key: QWEN_OFFICIAL,
     QWEN.key: QWEN,
     QWEN_40B.key: QWEN_40B,
 }
 DEFAULT_KEY = GLM.key
+
+
+def smaller_quants(spec: ModelSpec) -> list:
+    """Other rows serving the same model at a lower VRAM floor — what to suggest
+    when the box can't hold the chosen row (e.g. GLM FP16 → glm-q5 → glm-q4)."""
+    return sorted((s for s in CATALOG.values()
+                   if s.served_name == spec.served_name and s.min_total_gb < spec.min_total_gb),
+                  key=lambda s: s.min_total_gb)
 
 
 def model_list() -> list:

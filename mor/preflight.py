@@ -48,13 +48,19 @@ def model_preflight(spec, fetcher=None) -> tuple:
         return False, f"'{spec.repo}' is gated — set HF_TOKEN and accept the license first", []
     if status != 200:
         return True, f"could not verify '{spec.repo}' (HF unreachable) — proceeding", []
-    if spec.gguf_file:
+    if spec.gguf_file or spec.gguf_quant:
         tstatus, tree = fetcher(f"https://huggingface.co/api/models/{spec.repo}/tree/main")
         if tstatus == 200 and isinstance(tree, list):
             files = [it.get("path", "") for it in tree if isinstance(it, dict)]
-            if spec.gguf_file not in files:
-                near = [f for f in files if f.endswith(".gguf")][:5]
-                return False, f"file '{spec.gguf_file}' is not in repo '{spec.repo}'", near
+            ggufs = [f for f in files if f.endswith(".gguf")]
+            if spec.gguf_file and spec.gguf_file not in files:
+                return False, f"file '{spec.gguf_file}' is not in repo '{spec.repo}'", ggufs[:5]
+            if spec.gguf_quant and not any(
+                    spec.gguf_quant.lower() in f.lower() for f in ggufs):
+                # the quant tag (e.g. Q4_K_M) matches no file — name what IS there,
+                # so a wrong quant is a fast, informative failure, not a burned hour.
+                return (False, f"no '{spec.gguf_quant}' GGUF in repo '{spec.repo}' — "
+                        "available quants below", ggufs[:8])
     return True, f"'{spec.repo}' resolves", []
 
 

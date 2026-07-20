@@ -11,6 +11,30 @@ def _run(monkeypatch, rc, out, err):
     monkeypatch.setattr(gpu, "run", lambda *a, **k: (rc, out, err))
 
 
+def test_glm_has_smaller_quants_that_fit_small_boxes():
+    from mor.models import GLM, GLM_Q4, smaller_quants
+    keys = [s.key for s in smaller_quants(GLM)]
+    assert keys == ["glm-q4", "glm-q5"]          # ordered by VRAM floor, ascending
+    assert GLM_Q4.min_total_gb < GLM.min_total_gb and GLM_Q4.is_gguf
+
+
+def test_plan_too_small_box_names_the_quant_that_fits():
+    import pytest
+    from mor.models import GLM
+    # a 4x8GB box (32GB) can't hold GLM FP16 (66GB) but can hold glm-q5 (30GB)
+    gpus = [("RTX", 8192)] * 4
+    with pytest.raises(gpu.ProvisionError) as ei:
+        gpu.plan(gpus, GLM)
+    msg = str(ei.value)
+    assert "only 32GB" in msg and "4 GPU(s)" in msg and "gpu model glm-q5" in msg
+
+
+def test_plan_fits_a_smaller_quant_on_the_same_box():
+    from mor.models import GLM_Q4
+    tp, max_len, util, total = gpu.plan([("RTX", 8192)] * 4, GLM_Q4)   # 32GB total
+    assert tp == 4 and total == 32 and max_len > 0
+
+
 def test_handshake_reset_is_transient(monkeypatch):
     # the exact field signature reported from a booting box
     _run(monkeypatch, 255, "",

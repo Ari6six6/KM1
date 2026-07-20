@@ -39,6 +39,34 @@ def test_model_preflight_passes_when_the_file_is_present():
     assert ok
 
 
+def test_model_preflight_validates_the_quant_tag_and_lists_what_is_there():
+    # a gguf_quant row (glm-q4) whose quant isn't in the repo fails fast, naming
+    # the quants that ARE — not a burned hour on a bad row.
+    from mor.models import GLM_Q4
+
+    def fetch(url):
+        if url.endswith("/tree/main"):
+            return 200, [{"path": "GLM-4.7-Flash-...-Q5_K_M.gguf"},
+                         {"path": "GLM-4.7-Flash-...-Q8_0.gguf"}]
+        return 200, {"id": GLM_Q4.repo}
+
+    ok, msg, avail = preflight.model_preflight(GLM_Q4, fetcher=fetch)
+    assert not ok and "Q4_K_M" in msg
+    assert any("Q5_K_M" in f for f in avail)
+
+
+def test_model_preflight_passes_when_the_quant_is_present():
+    from mor.models import GLM_Q4
+
+    def fetch(url):
+        if url.endswith("/tree/main"):
+            return 200, [{"path": "GLM-4.7-Flash-Balanced-Q4_K_M.gguf"}]
+        return 200, {"id": GLM_Q4.repo}
+
+    ok, _, _ = preflight.model_preflight(GLM_Q4, fetcher=fetch)
+    assert ok
+
+
 def test_model_preflight_is_inconclusive_when_hf_is_unreachable():
     ok, msg, _ = preflight.model_preflight(GLM, fetcher=lambda url: (0, None))
     assert ok and "proceeding" in msg
